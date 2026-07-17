@@ -3,17 +3,46 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 from .config import HealthConfig
+from .dashboard import DASHBOARD_HTML
 from .events import Metrics
+from .models import Rule
+
+RulesProvider = Callable[[], tuple[Rule, ...]]
+EventsProvider = Callable[[], list[dict[str, Any]]]
+
+
+def _rule_to_dict(rule: Rule) -> dict[str, Any]:
+    return {
+        "id": rule.id,
+        "description": rule.description,
+        "enabled": rule.enabled,
+        "source_cidrs": [str(network) for network in rule.source_cidrs],
+        "destination_cidrs": [str(network) for network in rule.destination_cidrs],
+        "protocol": rule.protocol,
+        "destination_ports": sorted(rule.destination_ports),
+        "severity": rule.severity,
+        "action": rule.action,
+    }
 
 
 class HealthServer:
-    def __init__(self, config: HealthConfig, metrics: Metrics) -> None:
+    def __init__(
+        self,
+        config: HealthConfig,
+        metrics: Metrics,
+        rules_provider: RulesProvider | None = None,
+        events_provider: EventsProvider | None = None,
+    ) -> None:
         self._config = config
         self._metrics = metrics
+        self._rules_provider = rules_provider
+        self._events_provider = events_provider
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -21,13 +50,33 @@ class HealthServer:
         if not self._config.enabled:
             return
         metrics = self._metrics
+        rules_provider = self._rules_provider
+        events_provider = self._events_provider
 
         class Handler(BaseHTTPRequestHandler):
             server_version = "ibn-monitor/1.0"
 
             def do_GET(self) -> None:  # noqa: N802
                 snapshot = metrics.snapshot()
-                if self.path == "/healthz":
+                if self.path in ("/", "/index.html"):
+                    body = DASHBOARD_HTML.encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path == "/api/state":
+                    rules = rules_provider() if rules_provider else ()
+                    events = events_provider() if events_provider else []
+                    self._json(
+                        HTTPStatus.OK,
+                        {
+                            "metrics": snapshot,
+                            "rules": [_rule_to_dict(rule) for rule in rules],
+                            "recent_events": events,
+                        },
+                    )
+                elif self.path == "/healthz":
                     self._json(HTTPStatus.OK, {"status": "ok", **snapshot})
                 elif self.path == "/readyz":
                     status = HTTPStatus.OK if snapshot["ready"] else HTTPStatus.SERVICE_UNAVAILABLE

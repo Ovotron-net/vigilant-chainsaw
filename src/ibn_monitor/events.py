@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections import deque
 from dataclasses import asdict
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -140,14 +141,22 @@ class EventDispatcher:
         )
         self._last_sent: dict[str, float] = {}
         self._started = False
+        self._recent_lock = threading.Lock()
+        self._recent: deque[dict[str, Any]] = deque(maxlen=50)
 
     def start(self) -> None:
         if not self._started:
             self._thread.start()
             self._started = True
 
+    def recent_events(self) -> list[dict[str, Any]]:
+        with self._recent_lock:
+            return list(self._recent)
+
     def emit(self, event: dict[str, Any]) -> None:
         self._event_logger.write(event)
+        with self._recent_lock:
+            self._recent.append(event)
         if not self._webhook_url():
             return
         try:

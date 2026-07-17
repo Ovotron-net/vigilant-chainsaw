@@ -11,7 +11,7 @@ A deployable Linux network sensor that evaluates captured IP traffic against dec
 - Does **not** store packet payloads — only IP/transport header fields.
 - Writes rotating structured event logs (JSONL).
 - Sends optional webhook notifications off the capture thread with per-rule deduplication.
-- Exposes `/healthz`, `/readyz`, and `/metrics` (Prometheus text format).
+- Exposes `/healthz`, `/readyz`, and `/metrics` (Prometheus text format), plus a built-in web dashboard at `/` (backed by `/api/state`) showing live metrics, loaded rules, and recent violations.
 - Reloads policy rules on `SIGHUP` without interrupting packet capture.
 - Processes PCAP files offline for testing and incident review.
 - Generates an `nftables` ruleset from the same policy file for gateway enforcement.
@@ -49,7 +49,8 @@ Nine focused modules under `src/ibn_monitor/` — no framework, no ORM:
 | `capture.py` | `PacketSource` seam, live and PCAP Scapy adapters, packet metadata extraction |
 | `engine.py` | `PolicyEngine` — CIDR matching, thread-safe rule swap via `RLock` |
 | `events.py` | `EventDispatcher` — JSONL log, webhook queue, `Metrics` |
-| `health.py` | HTTP server for `/healthz`, `/readyz`, `/metrics` |
+| `health.py` | HTTP server for `/healthz`, `/readyz`, `/metrics`, `/api/state`, and the `/` dashboard |
+| `dashboard.py` | Embedded single-page dashboard (design-token CSS, no build step) |
 | `enforcement.py` | Renders `action=drop` rules into an `inet ibn_monitor` nftables table |
 | `monitor.py` | `MonitorService` — wires everything together |
 | `cli.py` | Four subcommands: `validate`, `check`, `render-nftables`, `run` |
@@ -205,7 +206,10 @@ The health listener binds to `127.0.0.1:9108` by default:
 curl.exe http://127.0.0.1:9108/healthz    # {"status":"ok"}
 curl.exe http://127.0.0.1:9108/readyz     # {"ready":true} once sniffing
 curl.exe http://127.0.0.1:9108/metrics    # Prometheus text format
+curl.exe http://127.0.0.1:9108/api/state  # metrics + rules + recent violations as JSON
 ```
+
+Opening `http://127.0.0.1:9108/` in a browser serves a built-in dashboard showing the underlying monitor state: live metrics, the loaded policy rules, and the most recent violations (auto-refreshing every 3 seconds).
 
 > Use `curl.exe` in PowerShell to invoke the real curl binary. The built-in `curl` alias maps to `Invoke-WebRequest`, which has different output formatting.
 

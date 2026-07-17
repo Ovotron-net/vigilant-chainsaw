@@ -17,7 +17,12 @@ class MonitorService:
         self.engine = PolicyEngine(config.rules)
         self.metrics = Metrics()
         self.dispatcher = EventDispatcher(config.logging, config.notifications, self.metrics)
-        self.health = HealthServer(config.health, self.metrics)
+        self.health = HealthServer(
+            config.health,
+            self.metrics,
+            rules_provider=self.engine.snapshot,
+            events_provider=self.dispatcher.recent_events,
+        )
 
     def start(self) -> None:
         try:
