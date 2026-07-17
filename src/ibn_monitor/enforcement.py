@@ -24,7 +24,8 @@ def render_nftables(config: AppConfig) -> str:
             continue
         for expression in _rule_expressions(rule):
             safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", rule.id)[:32]
-            lines.append(f'# {rule.id}: {rule.description}')
+            comment = f"{rule.id}: {rule.description}".replace("\r", " ").replace("\n", " ")
+            lines.append(f"# {comment}")
             lines.append(
                 f'add rule inet ibn_monitor forward {expression} limit rate 10/second '
                 f'log prefix "IBN {safe_id} "'
