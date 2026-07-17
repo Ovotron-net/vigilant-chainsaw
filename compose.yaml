@@ -1,0 +1,13 @@
+services:
+  monitor:
+    build: .
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    restart: unless-stopped
+    environment:
+      IBN_WEBHOOK_URL: ${IBN_WEBHOOK_URL:-}
+    volumes:
+      - ./config/policy.json:/app/config/policy.json:ro
+      - ./data/logs:/var/log/ibn-monitor

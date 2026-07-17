@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import re
+from itertools import product
+
+from .config import AppConfig
+from .models import Rule
+
+
+def render_nftables(config: AppConfig) -> str:
+    lines = [
+        "#!/usr/sbin/nft -f",
+        "",
+        "add table inet ibn_monitor",
+        "flush table inet ibn_monitor",
+        "add chain inet ibn_monitor forward "
+        "{ type filter hook forward priority filter; policy accept; }",
+        "",
+    ]
+
+    rendered = 0
+    for rule in config.rules:
+        if not rule.enabled or rule.action != "drop":
+            continue
+        for expression in _rule_expressions(rule):
+            safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", rule.id)[:32]
+            lines.append(f'# {rule.id}: {rule.description}')
+            lines.append(
+                f'add rule inet ibn_monitor forward {expression} limit rate 10/second '
+                f'log prefix "IBN {safe_id} " counter drop'
+            )
+            rendered += 1
+
+    if rendered == 0:
+        lines.append("# No enabled rules with action=drop were configured.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _rule_expressions(rule: Rule) -> list[str]:
+    source_versions = {network.version for network in rule.source_cidrs} or {4, 6}
+    destination_versions = {network.version for network in rule.destination_cidrs} or {4, 6}
+    versions = sorted(source_versions & destination_versions)
+    expressions: list[str] = []
+
+    for version in versions:
+        family = "ip" if version == 4 else "ip6"
+        sources = [network for network in rule.source_cidrs if network.version == version] or [None]
+        destinations = [
+            network for network in rule.destination_cidrs if network.version == version
+        ] or [None]
+        ports = sorted(rule.destination_ports) or [None]
+
+        for source, destination, port in product(sources, destinations, ports):
+            parts: list[str] = []
+            if source is not None:
+                parts.extend([family, "saddr", str(source)])
+            if destination is not None:
+                parts.extend([family, "daddr", str(destination)])
+            if rule.protocol != "any":
+                parts.append(rule.protocol)
+            if port is not None:
+                parts.extend(["dport", str(port)])
+            expressions.append(" ".join(parts))
+
+    return expressions
