@@ -11,6 +11,22 @@ from ibn_monitor.enforcement import render_nftables
 from ibn_monitor.models import Rule
 
 
+def rule(**overrides):
+    values = {
+        "id": "DEV-DB",
+        "description": "drop",
+        "enabled": True,
+        "source_cidrs": (ip_network("10.20.0.0/16"),),
+        "destination_cidrs": (ip_network("10.50.10.8/32"),),
+        "protocol": "tcp",
+        "destination_ports": frozenset({5432}),
+        "severity": "critical",
+        "action": "drop",
+    }
+    values.update(overrides)
+    return Rule(**values)
+
+
 def test_renders_drop_rule_only():
     config = AppConfig(
         version=1,
@@ -19,21 +35,10 @@ def test_renders_drop_rule_only():
         health=HealthConfig(False, "127.0.0.1", 9108),
         notifications=NotificationConfig(None, 3, "high", 60),
         rules=(
-            Rule(
-                id="DEV-DB",
-                description="drop",
-                enabled=True,
-                source_cidrs=(ip_network("10.20.0.0/16"),),
-                destination_cidrs=(ip_network("10.50.10.8/32"),),
-                protocol="tcp",
-                destination_ports=frozenset({5432}),
-                severity="critical",
-                action="drop",
-            ),
-            Rule(
+            rule(),
+            rule(
                 id="ALERT-ONLY",
                 description="alert",
-                enabled=True,
                 source_cidrs=(),
                 destination_cidrs=(),
                 protocol="any",
