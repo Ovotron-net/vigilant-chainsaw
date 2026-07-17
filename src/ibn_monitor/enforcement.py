@@ -27,8 +27,9 @@ def render_nftables(config: AppConfig) -> str:
             lines.append(f'# {rule.id}: {rule.description}')
             lines.append(
                 f'add rule inet ibn_monitor forward {expression} limit rate 10/second '
-                f'log prefix "IBN {safe_id} " counter drop'
+                f'log prefix "IBN {safe_id} "'
             )
+            lines.append(f"add rule inet ibn_monitor forward {expression} counter drop")
             rendered += 1
 
     if rendered == 0:
