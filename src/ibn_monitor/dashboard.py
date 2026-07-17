@@ -29,12 +29,13 @@ DASHBOARD_HTML = """<!doctype html>
   --color-primary-foreground: oklch(98% 0.01 264);
   --color-destructive: oklch(53% 0.22 27);
   --color-destructive-foreground: oklch(98% 0.01 264);
-  --color-warning: oklch(70% 0.15 70);
-  --color-success: oklch(62% 0.15 150);
+  --color-warning: oklch(51% 0.12 70);
+  --color-success: oklch(48% 0.12 150);
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --animate-fade-in: fade-in 0.2s ease-out;
+  color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -47,10 +48,15 @@ DASHBOARD_HTML = """<!doctype html>
     --color-border: oklch(26% 0.02 264);
     --color-primary: oklch(98% 0.01 264);
     --color-primary-foreground: oklch(14.5% 0.025 264);
-    --color-destructive: oklch(58% 0.19 27);
+    --color-destructive: oklch(70% 0.17 27);
+    --color-warning: oklch(78% 0.14 70);
+    --color-success: oklch(75% 0.15 150);
   }
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
 
 * { box-sizing: border-box; border-color: var(--color-border); }
 body {
@@ -67,6 +73,7 @@ h2 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--co
 .status { font-size: 0.75rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 9999px; }
 .status--ok { background: color-mix(in oklch, var(--color-success) 15%, transparent); color: var(--color-success); }
 .status--down { background: color-mix(in oklch, var(--color-destructive) 15%, transparent); color: var(--color-destructive); }
+.status--stale { background: color-mix(in oklch, var(--color-warning) 18%, transparent); color: var(--color-warning); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.75rem; margin-bottom: 2rem; }
 .card {
   background: var(--color-card);
@@ -79,10 +86,14 @@ h2 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--co
 .card .label { font-size: 0.75rem; color: var(--color-muted-foreground); }
 .card .value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 section { margin-bottom: 2rem; }
-table { width: 100%; border-collapse: collapse; background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
-th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-border); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-card); }
+table { width: 100%; border-collapse: collapse; }
+caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 th { font-size: 0.75rem; color: var(--color-muted-foreground); font-weight: 500; background: var(--color-muted); }
 tr:last-child td { border-bottom: none; }
+tbody tr { transition: background-color 150ms ease-out; }
+tbody tr:hover { background: color-mix(in oklch, var(--color-muted) 55%, transparent); }
 td { font-variant-numeric: tabular-nums; }
 code { font: 0.8125rem ui-monospace, monospace; }
 .badge { font-size: 0.6875rem; font-weight: 600; padding: 0.125rem 0.4375rem; border-radius: var(--radius-sm); text-transform: uppercase; letter-spacing: 0.03em; }
@@ -100,28 +111,34 @@ footer { font-size: 0.75rem; color: var(--color-muted-foreground); }
 <main>
   <header>
     <h1>ibn-monitor</h1>
-    <span id="ready" class="status status--down">connecting…</span>
+    <span id="ready" class="status status--down" role="status" aria-live="polite">connecting…</span>
   </header>
 
-  <section>
-    <h2>Metrics</h2>
+  <section aria-labelledby="metrics-heading">
+    <h2 id="metrics-heading">Metrics</h2>
     <div id="metrics" class="grid"></div>
   </section>
 
-  <section>
-    <h2>Policy rules</h2>
+  <section aria-labelledby="rules-heading">
+    <h2 id="rules-heading">Policy rules</h2>
+    <div class="table-wrap">
     <table>
-      <thead><tr><th>ID</th><th>Description</th><th>Protocol</th><th>Ports</th><th>Severity</th><th>Action</th></tr></thead>
+      <caption>Loaded policy rules with protocol, ports, severity, and action</caption>
+      <thead><tr><th scope="col">ID</th><th scope="col">Description</th><th scope="col">Protocol</th><th scope="col">Ports</th><th scope="col">Severity</th><th scope="col">Action</th></tr></thead>
       <tbody id="rules"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
     </table>
+    </div>
   </section>
 
-  <section>
-    <h2>Recent violations</h2>
+  <section aria-labelledby="events-heading">
+    <h2 id="events-heading">Recent violations</h2>
+    <div class="table-wrap">
     <table>
-      <thead><tr><th>Observed</th><th>Rule</th><th>Severity</th><th>Source</th><th>Destination</th><th>Proto</th><th>Port</th></tr></thead>
+      <caption>Most recent policy violations, newest first</caption>
+      <thead><tr><th scope="col">Observed</th><th scope="col">Rule</th><th scope="col">Severity</th><th scope="col">Source</th><th scope="col">Destination</th><th scope="col">Proto</th><th scope="col">Port</th></tr></thead>
       <tbody id="events"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
     </table>
+    </div>
   </section>
 
   <footer>Auto-refreshes every 3 seconds from <code>/api/state</code>.</footer>
@@ -151,9 +168,10 @@ function render(state) {
   ready.textContent = state.metrics.ready ? "ready" : "not ready";
   ready.className = "status " + (state.metrics.ready ? "status--ok" : "status--down");
 
+  const fmt = new Intl.NumberFormat();
   document.getElementById("metrics").innerHTML = COUNTERS.map(([key, label]) =>
     `<div class="card"><div class="label">${esc(label)}</div>` +
-    `<div class="value">${esc(state.metrics[key])}</div></div>`
+    `<div class="value">${esc(fmt.format(state.metrics[key]))}</div></div>`
   ).join("");
 
   const rules = state.rules.map((r) => `<tr>
@@ -181,10 +199,15 @@ function render(state) {
 }
 
 async function refresh() {
+  const ready = document.getElementById("ready");
   try {
     const response = await fetch("/api/state");
     if (response.ok) render(await response.json());
-  } catch (error) { /* transient; retried on next tick */ }
+  } catch (error) {
+    // Sensor unreachable; surface staleness instead of showing frozen data as live.
+    ready.textContent = "connection lost";
+    ready.className = "status status--stale";
+  }
 }
 
 refresh();
