@@ -58,10 +58,11 @@ def _rule_expressions(rule: Rule) -> list[str]:
                 parts.extend([family, "saddr", str(source)])
             if destination is not None:
                 parts.extend([family, "daddr", str(destination)])
-            if rule.protocol != "any":
-                parts.append(rule.protocol)
             if port is not None:
-                parts.extend(["dport", str(port)])
+                parts.extend([rule.protocol, "dport", str(port)])
+            elif rule.protocol != "any":
+                protocol = "icmpv6" if rule.protocol == "icmp" and version == 6 else rule.protocol
+                parts.extend(["meta", "l4proto", protocol])
             expressions.append(" ".join(parts))
 
     return expressions
