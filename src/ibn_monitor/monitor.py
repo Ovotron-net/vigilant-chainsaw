@@ -23,14 +23,16 @@ class MonitorService:
         try:
             self.dispatcher.start()
             self.health.start()
-            self.metrics.set_ready(True)
             logging.getLogger(__name__).info(
                 "Monitoring interface=%s filter=%s",
                 self.config.sensor.interface or "default",
                 self.config.sensor.bpf_filter,
             )
             # May block until exhaustion for finite sources (PCAP replay).
-            self.source.start(self.on_packet)
+            # Readiness flips only once the source confirms capture is established.
+            self.source.start(
+                self.on_packet, on_established=lambda: self.metrics.set_ready(True)
+            )
         except Exception:
             self.stop()
             raise

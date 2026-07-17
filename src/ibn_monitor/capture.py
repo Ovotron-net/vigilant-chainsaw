@@ -33,11 +33,14 @@ PacketCallback = Callable[[PacketMetadata | None], None]
 class PacketSource(Protocol):
     """Seam between packet capture and the monitor loop."""
 
-    def start(self, callback: PacketCallback) -> None:
+    def start(
+        self, callback: PacketCallback, *, on_established: Callable[[], None] | None = None
+    ) -> None:
         """Begin delivering packets to ``callback``.
 
         Returns once capture is established (live) or the source is
-        exhausted (finite).
+        exhausted (finite). ``on_established`` is invoked once capture is
+        confirmed established, before any packet delivery.
         """
         ...
 
@@ -53,7 +56,9 @@ class ScapyLiveSource:
         self._sensor = sensor
         self._sniffer: AsyncSniffer | None = None
 
-    def start(self, callback: PacketCallback) -> None:
+    def start(
+        self, callback: PacketCallback, *, on_established: Callable[[], None] | None = None
+    ) -> None:
         started = Event()
         self._sniffer = AsyncSniffer(
             iface=self._sensor.interface,
@@ -69,6 +74,8 @@ class ScapyLiveSource:
             if thread is not None and not thread.is_alive():
                 self._sniffer.join()
                 raise RuntimeError("Live packet capture stopped before startup completed")
+        if on_established is not None:
+            on_established()
 
     def stop(self) -> None:
         if self._sniffer and self._sniffer.running:
@@ -83,8 +90,12 @@ class PcapReplaySource:
         self._path = str(path)
         self._stop_requested = Event()
 
-    def start(self, callback: PacketCallback) -> None:
+    def start(
+        self, callback: PacketCallback, *, on_established: Callable[[], None] | None = None
+    ) -> None:
         self._stop_requested.clear()
+        if on_established is not None:
+            on_established()
 
         def deliver(packet: Any) -> None:
             if not self._stop_requested.is_set():

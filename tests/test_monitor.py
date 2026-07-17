@@ -21,7 +21,9 @@ class InMemorySource:
         self.items = items
         self.stopped = False
 
-    def start(self, callback):
+    def start(self, callback, *, on_established=None):
+        if on_established is not None:
+            on_established()
         for item in self.items:
             callback(item)
 
@@ -30,7 +32,7 @@ class InMemorySource:
 
 
 class FailingSource(InMemorySource):
-    def start(self, callback):
+    def start(self, callback, *, on_established=None):
         raise OSError("capture startup failed")
 
 
