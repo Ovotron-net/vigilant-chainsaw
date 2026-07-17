@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
+from importlib import resources
 from ipaddress import ip_network
 from pathlib import Path
 from typing import Any
+
+import jsonschema
 
 from .models import Rule
 
@@ -56,6 +60,23 @@ def _mapping(value: Any, path: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(f"{path} must be an object")
     return value
+
+
+@lru_cache(maxsize=1)
+def _load_schema() -> dict[str, Any]:
+    schema_text = (
+        resources.files("ibn_monitor").joinpath("policy.schema.json").read_text(encoding="utf-8")
+    )
+    return json.loads(schema_text)
+
+
+def _validate_schema(raw: Any) -> None:
+    validator = jsonschema.Draft202012Validator(_load_schema())
+    errors = sorted(validator.iter_errors(raw), key=lambda error: list(error.absolute_path))
+    if errors:
+        error = errors[0]
+        location = "/".join(str(part) for part in error.absolute_path) or "root"
+        raise ConfigError(f"Policy does not match schema at {location}: {error.message}")
 
 
 def _integer(value: Any, path: str, *, minimum: int, maximum: int | None = None) -> int:
@@ -151,6 +172,8 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError(f"Configuration file not found: {config_path}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Invalid JSON in {config_path}: {exc}") from exc
+
+    _validate_schema(raw)
 
     data = _mapping(raw, "root")
     version = _integer(data.get("version", 1), "version", minimum=1)

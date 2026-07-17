@@ -47,3 +47,45 @@ def test_rejects_ports_for_icmp(tmp_path):
     )
     with pytest.raises(ConfigError):
         load_config(path)
+
+
+def test_rejects_unknown_top_level_key(tmp_path):
+    path = tmp_path / "policy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rulez": [],
+                "rules": [{"id": "test"}],
+            }
+        )
+    )
+    with pytest.raises(ConfigError, match="rulez"):
+        load_config(path)
+
+
+def test_rejects_missing_version(tmp_path):
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps({"rules": [{"id": "test"}]}))
+    with pytest.raises(ConfigError, match="version"):
+        load_config(path)
+
+
+def test_rejects_duplicate_destination_ports(tmp_path):
+    path = tmp_path / "policy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "id": "test",
+                        "protocol": "tcp",
+                        "destination_ports": [443, 443],
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(ConfigError, match="destination_ports"):
+        load_config(path)
