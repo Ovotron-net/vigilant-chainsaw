@@ -1,0 +1,9 @@
+/var/log/ibn-monitor/*.jsonl {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "sensor": {
+    "interface": "eth0",
+    "bpf_filter": "ip or ip6",
+    "promiscuous": false
+  },
+  "logging": {
+    "file": "/var/log/ibn-monitor/events.jsonl",
+    "max_bytes": 10485760,
+    "backup_count": 5
+  },
+  "health": {
+    "enabled": true,
+    "bind": "127.0.0.1",
+    "port": 9108
+  },
+  "notifications": {
+    "webhook_url_env": "IBN_WEBHOOK_URL",
+    "timeout_seconds": 3,
+    "minimum_severity": "high",
+    "deduplication_seconds": 60
+  },
+  "rules": [
+    {
+      "id": "DEV-TO-PROD-DB",
+      "description": "Development systems must not connect directly to PostgreSQL in production",
+      "enabled": true,
+      "source_cidrs": ["10.20.0.0/16"],
+      "destination_cidrs": ["10.50.10.8/32"],
+      "protocol": "tcp",
+      "destination_ports": [5432],
+      "severity": "critical",
+      "action": "drop"
+    },
+    {
+      "id": "DEV-TO-PROD-SSH",
+      "description": "Alert when development systems connect to production over SSH",
+      "enabled": true,
+      "source_cidrs": ["10.20.0.0/16"],
+      "destination_cidrs": ["10.50.0.0/16"],
+      "protocol": "tcp",
+      "destination_ports": [22],
+      "severity": "high",
+      "action": "alert"
+    }
+  ]
+}
