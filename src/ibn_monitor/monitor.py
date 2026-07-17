@@ -1,52 +1,41 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any
 
-from scapy.sendrecv import AsyncSniffer, sniff
-
+from .capture import PacketSource
 from .config import AppConfig
-from .engine import PolicyEngine, packet_to_metadata
+from .engine import PolicyEngine
 from .events import EventDispatcher, Metrics, create_event
 from .health import HealthServer
+from .models import PacketMetadata
 
 
 class MonitorService:
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, source: PacketSource) -> None:
         self.config = config
+        self.source = source
         self.engine = PolicyEngine(config.rules)
         self.metrics = Metrics()
         self.dispatcher = EventDispatcher(config.logging, config.notifications, self.metrics)
         self.health = HealthServer(config.health, self.metrics)
-        self.sniffer: AsyncSniffer | None = None
 
     def start(self) -> None:
-        self.dispatcher.start()
-        self.health.start()
-        self.sniffer = AsyncSniffer(
-            iface=self.config.sensor.interface,
-            filter=self.config.sensor.bpf_filter,
-            promisc=self.config.sensor.promiscuous,
-            prn=self.process_packet,
-            store=False,
-        )
-        self.sniffer.start()
-        self.metrics.set_ready(True)
-        logging.getLogger(__name__).info(
-            "Monitoring interface=%s filter=%s",
-            self.config.sensor.interface or "default",
-            self.config.sensor.bpf_filter,
-        )
+        try:
+            self.dispatcher.start()
+            self.health.start()
+            self.metrics.set_ready(True)
+            logging.getLogger(__name__).info(
+                "Monitoring interface=%s filter=%s",
+                self.config.sensor.interface or "default",
+                self.config.sensor.bpf_filter,
+            )
+            # May block until exhaustion for finite sources (PCAP replay).
+            self.source.start(self.on_packet)
+        except Exception:
+            self.stop()
+            raise
 
-    def process_pcap(self, path: str | Path) -> None:
-        self.dispatcher.start()
-        self.health.start()
-        self.metrics.set_ready(True)
-        sniff(offline=str(path), prn=self.process_packet, store=False)
-
-    def process_packet(self, packet: Any) -> None:
-        metadata = packet_to_metadata(packet)
+    def on_packet(self, metadata: PacketMetadata | None) -> None:
         self.metrics.mark_packet(decoded=metadata is not None)
         if metadata is None:
             return
@@ -61,7 +50,6 @@ class MonitorService:
 
     def stop(self) -> None:
         self.metrics.set_ready(False)
-        if self.sniffer and self.sniffer.running:
-            self.sniffer.stop(join=True)
+        self.source.stop()
         self.health.stop()
         self.dispatcher.stop()

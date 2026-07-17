@@ -9,6 +9,7 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
+from .capture import PcapReplaySource, ScapyLiveSource
 from .config import ConfigError, load_config
 from .enforcement import render_nftables
 from .engine import PolicyEngine
@@ -119,14 +120,15 @@ def main(argv: list[str] | None = None) -> int:
             config = load_config(args.config)
             if args.interface:
                 config = replace(config, sensor=replace(config.sensor, interface=args.interface))
-            service = MonitorService(config)
             if args.pcap:
+                service = MonitorService(config, PcapReplaySource(args.pcap))
                 try:
-                    service.process_pcap(args.pcap)
+                    service.start()  # blocks until the PCAP is exhausted
                 finally:
                     service.stop()
                 return 0
 
+            service = MonitorService(config, ScapyLiveSource(config.sensor))
             stop_event = threading.Event()
             reload_event = threading.Event()
 
@@ -141,8 +143,8 @@ def main(argv: list[str] | None = None) -> int:
             if hasattr(signal, "SIGHUP"):
                 signal.signal(signal.SIGHUP, request_reload)
 
-            service.start()
             try:
+                service.start()
                 while not stop_event.wait(0.5):
                     if reload_event.is_set():
                         reload_event.clear()
