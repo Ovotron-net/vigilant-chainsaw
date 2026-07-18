@@ -141,6 +141,7 @@ class EventDispatcher:
         )
         self._last_sent: dict[str, float] = {}
         self._started = False
+        self._stop_event = threading.Event()
         self._recent_lock = threading.Lock()
         self._recent: deque[dict[str, Any]] = deque(maxlen=50)
 
@@ -167,10 +168,10 @@ class EventDispatcher:
 
     def stop(self) -> None:
         if self._started:
-            # Blocking put with a timeout so the sentinel isn't lost when the
-            # queue is momentarily full; the worker drains it within the wait.
+            self._stop_event.set()
+            # Best-effort wake-up; queued notifications are discarded on stop.
             with contextlib.suppress(queue.Full):
-                self._queue.put(None, timeout=2)
+                self._queue.put_nowait(None)
             self._thread.join(timeout=5)
         self._event_logger.close()
 
@@ -180,8 +181,13 @@ class EventDispatcher:
 
     def _worker(self) -> None:
         while True:
-            event = self._queue.get()
-            if event is None:
+            try:
+                event = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                if self._stop_event.is_set():
+                    return
+                continue
+            if event is None or self._stop_event.is_set():
                 return
             self._send_if_required(event)
 
