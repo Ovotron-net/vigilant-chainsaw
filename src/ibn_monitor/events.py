@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections import deque
 from dataclasses import asdict
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -140,14 +141,23 @@ class EventDispatcher:
         )
         self._last_sent: dict[str, float] = {}
         self._started = False
+        self._stop_event = threading.Event()
+        self._recent_lock = threading.Lock()
+        self._recent: deque[dict[str, Any]] = deque(maxlen=50)
 
     def start(self) -> None:
         if not self._started:
             self._thread.start()
             self._started = True
 
+    def recent_events(self) -> list[dict[str, Any]]:
+        with self._recent_lock:
+            return list(self._recent)
+
     def emit(self, event: dict[str, Any]) -> None:
         self._event_logger.write(event)
+        with self._recent_lock:
+            self._recent.append(event)
         if not self._webhook_url():
             return
         try:
@@ -158,6 +168,8 @@ class EventDispatcher:
 
     def stop(self) -> None:
         if self._started:
+            self._stop_event.set()
+            # Best-effort wake-up; queued notifications are discarded on stop.
             with contextlib.suppress(queue.Full):
                 self._queue.put_nowait(None)
             self._thread.join(timeout=5)
@@ -169,8 +181,13 @@ class EventDispatcher:
 
     def _worker(self) -> None:
         while True:
-            event = self._queue.get()
-            if event is None:
+            try:
+                event = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                if self._stop_event.is_set():
+                    return
+                continue
+            if event is None or self._stop_event.is_set():
                 return
             self._send_if_required(event)
 
@@ -192,10 +209,18 @@ class EventDispatcher:
             )
         )
         now = time.monotonic()
+        window = self._notification_config.deduplication_seconds
         last_sent = self._last_sent.get(key, 0.0)
-        if now - last_sent < self._notification_config.deduplication_seconds:
+        if now - last_sent < window:
             self._metrics.update(notifications_suppressed=1)
             return
+        # Prune expired dedup entries so unique flow keys don't accumulate forever.
+        if len(self._last_sent) > 10_000:
+            self._last_sent = {
+                entry_key: sent_at
+                for entry_key, sent_at in self._last_sent.items()
+                if now - sent_at < window
+            }
 
         url = self._webhook_url()
         if not url:

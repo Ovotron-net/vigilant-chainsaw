@@ -4,7 +4,7 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 
 ## Architecture
 
-Nine focused modules under `src/ibn_monitor/`; no framework, no ORM:
+Ten focused modules under `src/ibn_monitor/`; no framework, no ORM:
 
 | Module | Role |
 |---|---|
@@ -13,7 +13,8 @@ Nine focused modules under `src/ibn_monitor/`; no framework, no ORM:
 | `capture.py` | `PacketSource` seam (`typing.Protocol`) plus the two Scapy adapters: `ScapyLiveSource` (AsyncSniffer) and `PcapReplaySource` (offline replay). Owns `packet_to_metadata()` and all Scapy imports. |
 | `engine.py` | `PolicyEngine` — evaluates packets against rules using `ipaddress` CIDR matching. Thread-safe via `RLock` (supports live SIGHUP reload). Pure policy; no Scapy. |
 | `events.py` | `EventDispatcher` — writes JSONL log, queues webhook POSTs on a daemon thread, updates `Metrics`. |
-| `health.py` | Minimal HTTP server exposing `/healthz`, `/readyz`, `/metrics` (Prometheus text format). |
+| `health.py` | Minimal HTTP server exposing `/healthz`, `/readyz`, `/metrics` (Prometheus text format), `/api/state` (metrics + rules + recent events JSON), and `/` (embedded HTML dashboard). |
+| `dashboard.py` | Static single-page dashboard served at `/`. Semantic OKLCH design-token CSS embedded as a Python string; polls `/api/state` every 3 s. No build step, no external assets. |
 | `enforcement.py` | Renders `action=drop` rules into an `inet ibn_monitor` nftables table. |
 | `monitor.py` | `MonitorService` — wires engine, dispatcher, and health around an injected `PacketSource`. |
 | `cli.py` | Four subcommands: `validate`, `check`, `render-nftables`, `run`. Composition root: picks the `PacketSource` adapter for `run`. |
