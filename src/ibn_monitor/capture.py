@@ -113,7 +113,9 @@ class PcapReplaySource:
 
 
 # IPv6 extension headers that can sit between the IPv6 header and ICMPv6 (RFC 8200).
-_IPV6_EXTENSION_HEADERS = frozenset({0, 43, 44, 60})  # hop-by-hop, routing, fragment, dst opts
+_IPV6_EXTENSION_HEADERS = frozenset(
+    {0, 43, 44, 51, 60}  # hop-by-hop, routing, fragment, authentication, dst opts
+)
 _ICMPV6_PROTOCOL_NUMBER = 58
 
 
