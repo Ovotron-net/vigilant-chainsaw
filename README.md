@@ -40,7 +40,7 @@ config/policy.json ──▶ nftables renderer ──▶ gateway enforcement
                                               (render-nftables, separate step)
 ```
 
-Nine focused modules under `src/ibn_monitor/` — no framework, no ORM:
+Ten focused modules under `src/ibn_monitor/` — no framework, no ORM:
 
 | Module | Role |
 |---|---|
