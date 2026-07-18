@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 from dataclasses import replace
+from ipaddress import ip_address
 from pathlib import Path
 
 from .capture import PcapReplaySource, ScapyLiveSource
@@ -76,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "check":
             config = load_config(args.config)
+            try:
+                ip_address(args.source)
+                ip_address(args.destination)
+            except ValueError as exc:
+                raise ConfigError(f"Invalid IP address: {exc}") from exc
             packet = PacketMetadata(
                 timestamp="synthetic",
                 interface=None,

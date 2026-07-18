@@ -112,6 +112,26 @@ class PcapReplaySource:
         self._stop_requested.set()
 
 
+# IPv6 extension headers that can sit between the IPv6 header and ICMPv6 (RFC 8200).
+_IPV6_EXTENSION_HEADERS = frozenset(
+    {0, 43, 44, 51, 60}  # hop-by-hop, routing, fragment, authentication, dst opts
+)
+_ICMPV6_PROTOCOL_NUMBER = 58
+
+
+def _ipv6_carries_icmpv6(ipv6_layer: Any) -> bool:
+    """Follow the next-header chain through extension headers to find ICMPv6."""
+    layer = ipv6_layer
+    next_header = int(layer.nh)
+    while next_header in _IPV6_EXTENSION_HEADERS:
+        layer = layer.payload
+        header = getattr(layer, "nh", None)
+        if header is None:
+            return False
+        next_header = int(header)
+    return next_header == _ICMPV6_PROTOCOL_NUMBER
+
+
 def packet_to_metadata(packet: Any) -> PacketMetadata | None:
     if IP in packet:
         network_layer = packet[IP]
@@ -140,7 +160,7 @@ def packet_to_metadata(packet: Any) -> PacketMetadata | None:
         protocol = "udp"
         source_port = int(packet[UDP].sport)
         destination_port = int(packet[UDP].dport)
-    elif ICMP in packet or (IPv6 in packet and int(packet[IPv6].nh) == 58):
+    elif ICMP in packet or (IPv6 in packet and _ipv6_carries_icmpv6(packet[IPv6])):
         protocol = "icmp"
 
     interface = getattr(packet, "sniffed_on", None)
