@@ -51,8 +51,7 @@ def test_dashboard_and_state_endpoints():
     )
     server.start()
     try:
-        port = server._server.server_address[1]
-        base = f"http://127.0.0.1:{port}"
+        base = f"http://127.0.0.1:{server.port}"
 
         with urllib.request.urlopen(f"{base}/") as response:
             assert response.headers["Content-Type"].startswith("text/html")

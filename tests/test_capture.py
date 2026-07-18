@@ -2,7 +2,7 @@ import threading
 
 import pytest
 from scapy.layers.inet import IP, TCP, UDP
-from scapy.layers.inet6 import IPv6
+from scapy.layers.inet6 import ICMPv6EchoRequest, IPv6, IPv6ExtHdrHopByHop
 from scapy.utils import wrpcap
 
 import ibn_monitor.capture as capture
@@ -26,6 +26,17 @@ def test_decodes_ipv6_udp_packet():
 
 def test_undecodable_packet_yields_none():
     assert packet_to_metadata(TCP(dport=80)) is None
+
+
+def test_icmpv6_detected_behind_extension_header():
+    packet = (
+        IPv6(src="2001:db8::1", dst="2001:db8::2")
+        / IPv6ExtHdrHopByHop()
+        / ICMPv6EchoRequest()
+    )
+    metadata = packet_to_metadata(packet)
+    assert metadata is not None
+    assert metadata.protocol == "icmp"
 
 
 def test_pcap_replay_source_pushes_metadata(tmp_path):

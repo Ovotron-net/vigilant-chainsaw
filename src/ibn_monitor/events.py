@@ -167,8 +167,10 @@ class EventDispatcher:
 
     def stop(self) -> None:
         if self._started:
+            # Blocking put with a timeout so the sentinel isn't lost when the
+            # queue is momentarily full; the worker drains it within the wait.
             with contextlib.suppress(queue.Full):
-                self._queue.put_nowait(None)
+                self._queue.put(None, timeout=2)
             self._thread.join(timeout=5)
         self._event_logger.close()
 
@@ -201,10 +203,18 @@ class EventDispatcher:
             )
         )
         now = time.monotonic()
+        window = self._notification_config.deduplication_seconds
         last_sent = self._last_sent.get(key, 0.0)
-        if now - last_sent < self._notification_config.deduplication_seconds:
+        if now - last_sent < window:
             self._metrics.update(notifications_suppressed=1)
             return
+        # Prune expired dedup entries so unique flow keys don't accumulate forever.
+        if len(self._last_sent) > 10_000:
+            self._last_sent = {
+                entry_key: sent_at
+                for entry_key, sent_at in self._last_sent.items()
+                if now - sent_at < window
+            }
 
         url = self._webhook_url()
         if not url:

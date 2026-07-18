@@ -46,6 +46,11 @@ class HealthServer:
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
+    @property
+    def port(self) -> int | None:
+        """Actual bound port once started (useful when configured with port 0)."""
+        return self._server.server_address[1] if self._server else None
+
     def start(self) -> None:
         if not self._config.enabled:
             return
