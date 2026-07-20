@@ -1,4 +1,4 @@
-from ipaddress import ip_network
+from factories import rule
 
 from ibn_monitor.config import (
     AppConfig,
@@ -8,23 +8,6 @@ from ibn_monitor.config import (
     SensorConfig,
 )
 from ibn_monitor.enforcement import render_nftables
-from ibn_monitor.models import Rule
-
-
-def rule(**overrides):
-    values = {
-        "id": "DEV-DB",
-        "description": "drop",
-        "enabled": True,
-        "source_cidrs": (ip_network("10.20.0.0/16"),),
-        "destination_cidrs": (ip_network("10.50.10.8/32"),),
-        "protocol": "tcp",
-        "destination_ports": frozenset({5432}),
-        "severity": "critical",
-        "action": "drop",
-    }
-    values.update(overrides)
-    return Rule(**values)
 
 
 def test_renders_drop_rule_only():

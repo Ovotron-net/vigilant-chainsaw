@@ -7,7 +7,7 @@ from .config import AppConfig
 from .engine import PolicyEngine
 from .events import EventLog, Metrics, build_notifier, create_event
 from .health import HealthServer
-from .models import PacketMetadata
+from .models import PacketMetadata, Rule
 
 
 class MonitorService:
@@ -54,9 +54,9 @@ class MonitorService:
             self.event_log.write(event)
             self.notifier.notify(event)
 
-    def reload_rules(self, config: AppConfig) -> None:
-        self.engine.replace_rules(config.rules)
-        logging.getLogger(__name__).info("Reloaded %d policy rules", len(config.rules))
+    def reload_rules(self, rules: tuple[Rule, ...]) -> None:
+        self.engine.replace_rules(rules)
+        logging.getLogger(__name__).info("Reloaded %d policy rules", len(rules))
 
     def stop(self) -> None:
         self.metrics.set_ready(False)

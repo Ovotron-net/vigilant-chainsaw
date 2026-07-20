@@ -74,12 +74,14 @@ conf.route_autoload = False
 conf.route6_autoload = False
 ```
 
-Use the `rule()` factory helper (defined in test files) to build `Rule` instances with overridable defaults rather than constructing them inline:
+Shared factories live in `tests/factories.py` (`rule`, `metadata`, `app_config`) with overridable defaults. Prefer importing those rather than duplicating helpers per test module:
 
 ```python
-def rule(**kwargs):
-    defaults = dict(id="R1", description="test", enabled=True, ...)
-    return Rule(**{**defaults, **kwargs})
+from factories import rule, metadata, app_config
+
+r = rule(id="OTHER", action="alert")
+pkt = metadata(destination_port=443)
+cfg = app_config(tmp_path, (r,))
 ```
 
 Temporary config files use pytest's `tmp_path` fixture; no mocking of Scapy is needed for engine/config unit tests.

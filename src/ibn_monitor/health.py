@@ -36,8 +36,8 @@ class HealthServer:
         self,
         config: HealthConfig,
         metrics: Metrics,
-        rules_provider: RulesProvider | None = None,
-        events_provider: EventsProvider | None = None,
+        rules_provider: RulesProvider,
+        events_provider: EventsProvider,
     ) -> None:
         self._config = config
         self._metrics = metrics
@@ -71,8 +71,8 @@ class HealthServer:
                     self.end_headers()
                     self.wfile.write(body)
                 elif self.path == "/api/state":
-                    rules = rules_provider() if rules_provider else ()
-                    events = events_provider() if events_provider else []
+                    rules = rules_provider()
+                    events = events_provider()
                     self._json(
                         HTTPStatus.OK,
                         {

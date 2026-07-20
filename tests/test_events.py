@@ -1,8 +1,9 @@
 import json
 import time
 from io import BytesIO
-from ipaddress import ip_network
 from unittest.mock import MagicMock
+
+from factories import metadata, rule
 
 from ibn_monitor.config import LoggingConfig, NotificationConfig
 from ibn_monitor.events import (
@@ -13,37 +14,30 @@ from ibn_monitor.events import (
     build_notifier,
     create_event,
 )
-from ibn_monitor.models import Event, PacketMetadata, Rule
+from ibn_monitor.models import Event
 
 
 def _rule(**overrides):
-    base = dict(
+    values = dict(
         id="R1",
         description="test",
-        enabled=True,
-        source_cidrs=(ip_network("10.0.0.0/8"),),
-        destination_cidrs=(),
-        protocol="tcp",
-        destination_ports=frozenset({443}),
         severity="high",
         action="alert",
+        destination_ports=frozenset({443}),
     )
-    base.update(overrides)
-    return Rule(**base)
+    values.update(overrides)
+    return rule(**values)
 
 
 def _packet(**overrides):
-    base = dict(
+    values = dict(
         timestamp="2026-01-01T00:00:00+00:00",
-        interface="eth0",
         source="10.1.2.3",
         destination="10.9.8.7",
-        protocol="tcp",
-        source_port=40000,
         destination_port=443,
     )
-    base.update(overrides)
-    return PacketMetadata(**base)
+    values.update(overrides)
+    return metadata(**values)
 
 
 def _notification_config(**overrides):

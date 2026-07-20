@@ -36,11 +36,6 @@ class Metrics:
         self.last_packet_at = 0.0
         self.last_violation_at = 0.0
 
-    def update(self, **increments: int) -> None:
-        with self._lock:
-            for key, value in increments.items():
-                setattr(self, key, int(getattr(self, key)) + value)
-
     def set_ready(self, value: bool) -> None:
         with self._lock:
             self.ready = value
@@ -56,6 +51,22 @@ class Metrics:
         with self._lock:
             self.violations += 1
             self.last_violation_at = time.time()
+
+    def incr_notifications_sent(self, n: int = 1) -> None:
+        with self._lock:
+            self.notifications_sent += n
+
+    def incr_notification_failures(self, n: int = 1) -> None:
+        with self._lock:
+            self.notification_failures += n
+
+    def incr_notifications_suppressed(self, n: int = 1) -> None:
+        with self._lock:
+            self.notifications_suppressed += n
+
+    def incr_notification_queue_dropped(self, n: int = 1) -> None:
+        with self._lock:
+            self.notification_queue_dropped += n
 
     def snapshot(self) -> dict[str, int | float | bool]:
         with self._lock:
@@ -162,7 +173,7 @@ class WebhookNotifier:
         try:
             self._queue.put_nowait(event)
         except queue.Full:
-            self._metrics.update(notification_queue_dropped=1)
+            self._metrics.incr_notification_queue_dropped()
             logging.getLogger(__name__).error("Webhook queue is full; notification dropped")
 
     def stop(self) -> None:
@@ -208,7 +219,7 @@ class WebhookNotifier:
         window = self._notification_config.deduplication_seconds
         last_sent = self._last_sent.get(key, 0.0)
         if now - last_sent < window:
-            self._metrics.update(notifications_suppressed=1)
+            self._metrics.incr_notifications_suppressed()
             return
         # Prune expired dedup entries so unique flow keys don't accumulate forever.
         if len(self._last_sent) > 10_000:
@@ -241,9 +252,9 @@ class WebhookNotifier:
                         None,
                     )
             self._last_sent[key] = now
-            self._metrics.update(notifications_sent=1)
+            self._metrics.incr_notifications_sent()
         except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
-            self._metrics.update(notification_failures=1)
+            self._metrics.incr_notification_failures()
             logging.getLogger(__name__).error("Webhook delivery failed: %s", exc)
 
 
