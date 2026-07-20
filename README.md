@@ -32,8 +32,8 @@ Network interface / PCAP
           │
      matched rules
           │
-          ├──▶ rotating JSONL log        ← events.py
-          ├──▶ webhook worker thread     ← events.py  (queue.Queue, dedup)
+          ├──▶ EventLog (JSONL + recent) ← events.py
+          ├──▶ Notifier (webhook worker) ← events.py  (queue.Queue, dedup)
           └──▶ Prometheus metrics        ← events.py / health.py
 
 config/policy.json ──▶ nftables renderer ──▶ gateway enforcement
@@ -48,7 +48,7 @@ Ten focused modules under `src/ibn_monitor/` — no framework, no ORM:
 | `config.py` | Loads and validates `policy.json` → `AppConfig`; raises `ConfigError` on bad data |
 | `capture.py` | `PacketSource` seam, live and PCAP Scapy adapters, packet metadata extraction |
 | `engine.py` | `PolicyEngine` — CIDR matching, thread-safe rule swap via `RLock` |
-| `events.py` | `EventDispatcher` — JSONL log, webhook queue, `Metrics` |
+| `events.py` | `Metrics`, `EventLog` (JSONL + recent ring), `Notifier` seam (`NullNotifier` / `WebhookNotifier`) |
 | `health.py` | HTTP server for `/healthz`, `/readyz`, `/metrics`, `/api/state`, and the `/` dashboard |
 | `dashboard.py` | Embedded single-page dashboard (design-token CSS, no build step) |
 | `enforcement.py` | Renders `action=drop` rules into an `inet ibn_monitor` nftables table |

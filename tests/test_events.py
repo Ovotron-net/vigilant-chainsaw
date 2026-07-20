@@ -1,6 +1,8 @@
+import json
 from ipaddress import ip_network
 
-from ibn_monitor.events import create_event
+from ibn_monitor.config import LoggingConfig
+from ibn_monitor.events import EventLog, NullNotifier, create_event
 from ibn_monitor.models import Event, PacketMetadata, Rule
 
 
@@ -57,3 +59,22 @@ def test_event_to_dict_matches_legacy_wire_shape():
     assert payload["network"]["destination"] == "10.9.8.7"
     assert payload["network"]["destination_port"] == 443
     assert "event_id" in payload and payload["event_id"]
+
+
+def test_null_notifier_does_not_raise():
+    n = NullNotifier()
+    n.start()
+    n.notify(create_event(_packet(), _rule()))
+    n.stop()
+
+
+def test_event_log_writes_jsonl_and_recent(tmp_path):
+    log = EventLog(LoggingConfig(file=str(tmp_path / "e.jsonl"), max_bytes=1024, backup_count=1))
+    event = create_event(_packet(), _rule())
+    log.write(event)
+    log.close()
+    lines = (tmp_path / "e.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["rule"]["id"] == "R1"
+    # recent ring survives close(); only file handlers are closed
+    assert log.recent()[0]["rule"]["id"] == "R1"

@@ -13,7 +13,7 @@ import uuid
 from collections import deque
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .config import LoggingConfig, NotificationConfig
 from .models import Event, PacketMetadata, Rule
@@ -120,15 +120,28 @@ def create_event(packet: PacketMetadata, rule: Rule) -> Event:
     )
 
 
-class EventDispatcher:
-    def __init__(
-        self,
-        logging_config: LoggingConfig,
-        notification_config: NotificationConfig,
-        metrics: Metrics,
-    ) -> None:
-        self._event_logger = JsonEventLogger(logging_config)
-        self._notification_config = notification_config
+class Notifier(Protocol):
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def notify(self, event: Event) -> None: ...
+
+
+class NullNotifier:
+    """No-op when webhook_url_env is unset or empty."""
+
+    def start(self) -> None:
+        return
+
+    def stop(self) -> None:
+        return
+
+    def notify(self, event: Event) -> None:
+        return
+
+
+class WebhookNotifier:
+    def __init__(self, config: NotificationConfig, metrics: Metrics) -> None:
+        self._notification_config = config
         self._metrics = metrics
         self._queue: queue.Queue[Event | None] = queue.Queue(maxsize=1000)
         self._thread = threading.Thread(
@@ -139,25 +152,13 @@ class EventDispatcher:
         self._last_sent: dict[str, float] = {}
         self._started = False
         self._stop_event = threading.Event()
-        self._recent_lock = threading.Lock()
-        self._recent: deque[dict[str, Any]] = deque(maxlen=50)
 
     def start(self) -> None:
         if not self._started:
             self._thread.start()
             self._started = True
 
-    def recent_events(self) -> list[dict[str, Any]]:
-        with self._recent_lock:
-            return list(self._recent)
-
-    def emit(self, event: Event) -> None:
-        payload = event.to_dict()
-        self._event_logger.write(payload)
-        with self._recent_lock:
-            self._recent.append(payload)
-        if not self._webhook_url():
-            return
+    def notify(self, event: Event) -> None:
         try:
             self._queue.put_nowait(event)
         except queue.Full:
@@ -171,7 +172,6 @@ class EventDispatcher:
             with contextlib.suppress(queue.Full):
                 self._queue.put_nowait(None)
             self._thread.join(timeout=5)
-        self._event_logger.close()
 
     def _webhook_url(self) -> str | None:
         variable = self._notification_config.webhook_url_env
@@ -245,3 +245,31 @@ class EventDispatcher:
         except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
             self._metrics.update(notification_failures=1)
             logging.getLogger(__name__).error("Webhook delivery failed: %s", exc)
+
+
+class EventLog:
+    def __init__(self, logging_config: LoggingConfig, *, recent_maxlen: int = 50) -> None:
+        self._event_logger = JsonEventLogger(logging_config)
+        self._recent_lock = threading.Lock()
+        self._recent: deque[dict[str, Any]] = deque(maxlen=recent_maxlen)
+
+    def write(self, event: Event) -> None:
+        """Append JSONL via JsonEventLogger and push event.to_dict() to recent ring."""
+        payload = event.to_dict()
+        self._event_logger.write(payload)
+        with self._recent_lock:
+            self._recent.append(payload)
+
+    def recent(self) -> list[dict[str, object]]:
+        with self._recent_lock:
+            return list(self._recent)
+
+    def close(self) -> None:
+        self._event_logger.close()
+
+
+def build_notifier(config: NotificationConfig, metrics: Metrics) -> Notifier:
+    """Return NullNotifier if webhook_url_env is unset/None; else WebhookNotifier."""
+    if not config.webhook_url_env:
+        return NullNotifier()
+    return WebhookNotifier(config, metrics)
