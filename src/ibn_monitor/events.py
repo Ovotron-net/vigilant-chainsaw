@@ -11,13 +11,12 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import deque
-from dataclasses import asdict
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 from .config import LoggingConfig, NotificationConfig
-from .models import PacketMetadata, Rule
+from .models import Event, PacketMetadata, Rule
 
 SEVERITY_ORDER = {"low": 10, "medium": 20, "high": 30, "critical": 40}
 
@@ -107,20 +106,18 @@ class JsonEventLogger:
             self._logger.removeHandler(handler)
 
 
-def create_event(packet: PacketMetadata, rule: Rule) -> dict[str, Any]:
-    return {
-        "schema_version": 1,
-        "event_id": str(uuid.uuid4()),
-        "event_type": "network_policy_violation",
-        "observed_at": packet.timestamp,
-        "rule": {
-            "id": rule.id,
-            "description": rule.description,
-            "severity": rule.severity,
-            "action": rule.action,
-        },
-        "network": asdict(packet),
-    }
+def create_event(packet: PacketMetadata, rule: Rule) -> Event:
+    return Event(
+        schema_version=1,
+        event_id=str(uuid.uuid4()),
+        event_type="network_policy_violation",
+        observed_at=packet.timestamp,
+        rule_id=rule.id,
+        rule_description=rule.description,
+        rule_severity=rule.severity,
+        rule_action=rule.action,
+        network=packet,
+    )
 
 
 class EventDispatcher:
@@ -133,7 +130,7 @@ class EventDispatcher:
         self._event_logger = JsonEventLogger(logging_config)
         self._notification_config = notification_config
         self._metrics = metrics
-        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=1000)
+        self._queue: queue.Queue[Event | None] = queue.Queue(maxsize=1000)
         self._thread = threading.Thread(
             target=self._worker,
             name="ibn-webhook-dispatcher",
@@ -154,10 +151,11 @@ class EventDispatcher:
         with self._recent_lock:
             return list(self._recent)
 
-    def emit(self, event: dict[str, Any]) -> None:
-        self._event_logger.write(event)
+    def emit(self, event: Event) -> None:
+        payload = event.to_dict()
+        self._event_logger.write(payload)
         with self._recent_lock:
-            self._recent.append(event)
+            self._recent.append(payload)
         if not self._webhook_url():
             return
         try:
@@ -191,21 +189,19 @@ class EventDispatcher:
                 return
             self._send_if_required(event)
 
-    def _send_if_required(self, event: dict[str, Any]) -> None:
-        severity = str(event["rule"]["severity"])
+    def _send_if_required(self, event: Event) -> None:
         minimum = self._notification_config.minimum_severity
-        if SEVERITY_ORDER[severity] < SEVERITY_ORDER[minimum]:
+        if SEVERITY_ORDER[event.rule_severity] < SEVERITY_ORDER[minimum]:
             return
 
-        network = event["network"]
         key = ":".join(
             str(value)
             for value in (
-                event["rule"]["id"],
-                network["source"],
-                network["destination"],
-                network["protocol"],
-                network["destination_port"],
+                event.rule_id,
+                event.network.source,
+                event.network.destination,
+                event.network.protocol,
+                event.network.destination_port,
             )
         )
         now = time.monotonic()
@@ -227,7 +223,7 @@ class EventDispatcher:
             return
         request = urllib.request.Request(
             url,
-            data=json.dumps(event).encode("utf-8"),
+            data=json.dumps(event.to_dict()).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
