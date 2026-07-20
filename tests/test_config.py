@@ -35,13 +35,14 @@ def test_rejects_ports_for_icmp(tmp_path):
     path.write_text(
         json.dumps(
             {
+                "version": 1,
                 "rules": [
                     {
                         "id": "bad",
                         "protocol": "icmp",
                         "destination_ports": [80],
                     }
-                ]
+                ],
             }
         )
     )

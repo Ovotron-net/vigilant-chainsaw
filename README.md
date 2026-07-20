@@ -139,10 +139,10 @@ Rules are defined in `config/policy.json` and validated against the packaged sch
 - `alert` — detect and log only.
 - `drop` — detect, log, and eligible for nftables rendering. The sensor itself never drops packets; enforcement is a separate step.
 
-**Validation constraints** (enforced by `config.py`):
+**Validation constraints** (schema + `config.py`):
 
-- Rule IDs must be unique.
-- `destination_ports` must be empty or absent when `protocol` is `icmp`.
+- Rule IDs must be unique (`config.py`).
+- `destination_ports` must be empty or absent when `protocol` is `icmp` (JSON Schema `if`/`then`).
 - `notifications.webhook_url_env` is an **environment variable name**, never the URL itself.
 - `SIGHUP` reloads rules only. Changes to `sensor`, `logging`, or `health` require a restart.
 
