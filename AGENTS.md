@@ -55,10 +55,10 @@ make docker                   # docker compose up --build -d
 
 ## Configuration
 
-`config/policy.json` is validated against `config/policy.schema.json` at startup. Key constraints enforced in `config.py`:
+`config/policy.json` is validated against the packaged schema `ibn_monitor/policy.schema.json` at startup. Schema owns structure (enums, ranges, `additionalProperties`, ports-only-for-tcp/udp). Semantic checks in `config.py`:
 
 - Rule IDs must be unique across the file.
-- `destination_ports` must be empty/absent when `protocol` is `icmp`.
+- Each CIDR must parse via `ip_network(..., strict=False)`.
 - `notifications.webhook_url_env` names an **environment variable** that holds the URL (never the URL itself).
 - SIGHUP reloads rules only; changes to `sensor`, `logging`, or `health` require a restart.
 

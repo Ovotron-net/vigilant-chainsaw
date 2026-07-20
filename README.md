@@ -104,7 +104,7 @@ Events are written to `/var/log/ibn-monitor/events.jsonl` by the example configu
 
 ## Policy model
 
-Rules are defined in `config/policy.json` and validated against `config/policy.schema.json` at startup.
+Rules are defined in `config/policy.json` and validated against the packaged schema `ibn_monitor/policy.schema.json` at startup.
 
 ```json
 {
