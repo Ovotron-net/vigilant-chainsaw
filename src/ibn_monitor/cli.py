@@ -155,11 +155,11 @@ def main(argv: list[str] | None = None) -> int:
                     if reload_event.is_set():
                         reload_event.clear()
                         try:
-                            reloaded_config = load_config(args.config)
+                            reloaded = load_config(args.config)
                         except ConfigError as exc:
                             logging.error("Policy reload failed; keeping existing rules: %s", exc)
                         else:
-                            service.reload_rules(reloaded_config)
+                            service.reload_rules(reloaded.rules)
             finally:
                 service.stop()
             return 0

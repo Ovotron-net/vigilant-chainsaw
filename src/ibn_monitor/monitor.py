@@ -5,9 +5,9 @@ import logging
 from .capture import PacketSource
 from .config import AppConfig
 from .engine import PolicyEngine
-from .events import EventDispatcher, Metrics, create_event
+from .events import EventLog, Metrics, build_notifier, create_event
 from .health import HealthServer
-from .models import PacketMetadata
+from .models import PacketMetadata, Rule
 
 
 class MonitorService:
@@ -16,17 +16,18 @@ class MonitorService:
         self.source = source
         self.engine = PolicyEngine(config.rules)
         self.metrics = Metrics()
-        self.dispatcher = EventDispatcher(config.logging, config.notifications, self.metrics)
+        self.event_log = EventLog(config.logging)
+        self.notifier = build_notifier(config.notifications, self.metrics)
         self.health = HealthServer(
             config.health,
             self.metrics,
             rules_provider=self.engine.snapshot,
-            events_provider=self.dispatcher.recent_events,
+            events_provider=self.event_log.recent,
         )
 
     def start(self) -> None:
         try:
-            self.dispatcher.start()
+            self.notifier.start()
             self.health.start()
             logging.getLogger(__name__).info(
                 "Monitoring interface=%s filter=%s",
@@ -49,14 +50,17 @@ class MonitorService:
 
         for rule in self.engine.evaluate(metadata):
             self.metrics.mark_violation()
-            self.dispatcher.emit(create_event(metadata, rule))
+            event = create_event(metadata, rule)
+            self.event_log.write(event)
+            self.notifier.notify(event)
 
-    def reload_rules(self, config: AppConfig) -> None:
-        self.engine.replace_rules(config.rules)
-        logging.getLogger(__name__).info("Reloaded %d policy rules", len(config.rules))
+    def reload_rules(self, rules: tuple[Rule, ...]) -> None:
+        self.engine.replace_rules(rules)
+        logging.getLogger(__name__).info("Reloaded %d policy rules", len(rules))
 
     def stop(self) -> None:
         self.metrics.set_ready(False)
         self.source.stop()
         self.health.stop()
-        self.dispatcher.stop()
+        self.notifier.stop()
+        self.event_log.close()

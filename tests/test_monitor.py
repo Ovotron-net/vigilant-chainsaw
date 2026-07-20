@@ -1,16 +1,8 @@
 import json
-from ipaddress import ip_network
 
 import pytest
+from factories import app_config, metadata, rule
 
-from ibn_monitor.config import (
-    AppConfig,
-    HealthConfig,
-    LoggingConfig,
-    NotificationConfig,
-    SensorConfig,
-)
-from ibn_monitor.models import PacketMetadata, Rule
 from ibn_monitor.monitor import MonitorService
 
 
@@ -34,52 +26,6 @@ class InMemorySource:
 class FailingSource(InMemorySource):
     def start(self, callback, *, on_established=None):
         raise OSError("capture startup failed")
-
-
-def app_config(tmp_path, rules):
-    return AppConfig(
-        version=1,
-        sensor=SensorConfig(interface=None, bpf_filter="", promiscuous=False),
-        logging=LoggingConfig(file=str(tmp_path / "events.jsonl"), max_bytes=1024, backup_count=1),
-        health=HealthConfig(enabled=False, bind="127.0.0.1", port=0),
-        notifications=NotificationConfig(
-            webhook_url_env=None,
-            timeout_seconds=1.0,
-            minimum_severity="low",
-            deduplication_seconds=0,
-        ),
-        rules=rules,
-    )
-
-
-def metadata(**overrides):
-    values = {
-        "timestamp": "now",
-        "interface": "eth0",
-        "source": "10.20.5.14",
-        "destination": "10.50.10.8",
-        "protocol": "tcp",
-        "source_port": 40000,
-        "destination_port": 5432,
-    }
-    values.update(overrides)
-    return PacketMetadata(**values)
-
-
-def rule(**overrides):
-    values = {
-        "id": "DEV-DB",
-        "description": "block dev database access",
-        "enabled": True,
-        "source_cidrs": (ip_network("10.20.0.0/16"),),
-        "destination_cidrs": (ip_network("10.50.10.8/32"),),
-        "protocol": "tcp",
-        "destination_ports": frozenset({5432}),
-        "severity": "critical",
-        "action": "drop",
-    }
-    values.update(overrides)
-    return Rule(**values)
 
 
 def test_monitor_logs_violation_through_the_seam(tmp_path):
@@ -111,7 +57,7 @@ def test_monitor_reload_swaps_rules(tmp_path):
     config = app_config(tmp_path, (rule(),))
     service = MonitorService(config, InMemorySource([]))
     try:
-        service.reload_rules(app_config(tmp_path, (rule(id="OTHER", enabled=False),)))
+        service.reload_rules((rule(id="OTHER", enabled=False),))
         assert service.engine.snapshot()[0].id == "OTHER"
     finally:
         service.stop()

@@ -77,6 +77,21 @@
         },
         "severity": { "enum": ["low", "medium", "high", "critical"] },
         "action": { "enum": ["alert", "drop"] }
+      },
+      "if": {
+        "properties": {
+          "destination_ports": {
+            "type": "array",
+            "minItems": 1
+          }
+        },
+        "required": ["destination_ports"]
+      },
+      "then": {
+        "properties": {
+          "protocol": { "enum": ["tcp", "udp"] }
+        },
+        "required": ["protocol"]
       }
     }
   }

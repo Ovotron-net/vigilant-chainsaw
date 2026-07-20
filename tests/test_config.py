@@ -35,13 +35,14 @@ def test_rejects_ports_for_icmp(tmp_path):
     path.write_text(
         json.dumps(
             {
+                "version": 1,
                 "rules": [
                     {
                         "id": "bad",
                         "protocol": "icmp",
                         "destination_ports": [80],
                     }
-                ]
+                ],
             }
         )
     )
@@ -88,4 +89,32 @@ def test_rejects_duplicate_destination_ports(tmp_path):
         )
     )
     with pytest.raises(ConfigError, match="destination_ports"):
+        load_config(path)
+
+
+def test_rejects_duplicate_rule_ids(tmp_path):
+    path = tmp_path / "policy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [{"id": "x"}, {"id": "x"}],
+            }
+        )
+    )
+    with pytest.raises(ConfigError, match="unique"):
+        load_config(path)
+
+
+def test_rejects_invalid_cidr(tmp_path):
+    path = tmp_path / "policy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [{"id": "x", "source_cidrs": ["not-a-cidr"]}],
+            }
+        )
+    )
+    with pytest.raises(ConfigError, match="CIDR"):
         load_config(path)
