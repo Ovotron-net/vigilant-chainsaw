@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .events import serialize_evidence
+from .journal import JournalConfig, JournalWriter
 from .models import EvidenceEnvelope
 
 
@@ -27,7 +28,29 @@ class MemoryEvidenceWriter:
 
 
 class FileEvidenceWriter:
-    """Append-only JSONL; no rotation/fsync/emergency (Phase 3)."""
+    """Thin wrapper: durable JournalWriter for production paths."""
+
+    def __init__(self, path: Path | str, **journal_kwargs: object) -> None:
+        self._journal = JournalWriter(
+            JournalConfig(file=str(path), **journal_kwargs)  # type: ignore[arg-type]
+        )
+
+    def commit(self, envelope: EvidenceEnvelope) -> None:
+        self._journal.commit(envelope)
+
+    def flush(self) -> None:
+        self._journal.flush()
+
+    def close(self) -> None:
+        self._journal.close()
+
+    @property
+    def healthy(self) -> bool:
+        return self._journal.healthy
+
+
+class SimpleFileEvidenceWriter:
+    """Minimal append-only writer for tests that do not need durability."""
 
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)

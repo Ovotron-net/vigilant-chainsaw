@@ -1,76 +1,19 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from pathlib import Path
 
-from .capture import ObservationSource, PacketSource
-from .config import AppConfig, PolicyV2Config
-from .engine import PolicyEngine
-from .events import EventLog, Metrics, build_notifier, create_event
+from .capture import ObservationSource
+from .config import PolicyV2Config
 from .evidence_stub import EvidenceWriter, FileEvidenceWriter
-from .health import HealthServer
-from .models import PacketMetadata, Rule
+from .models import ControlMessage
+from .notifications_v2 import build_v2_notifier
 from .pipeline import PipelineConfig, PipelineWorker
 from .probe import ProbeServer
 
 logger = logging.getLogger(__name__)
-
-
-class MonitorService:
-    """V1 live monitor (Scapy path). Kept until Phase 5 render cut completes."""
-
-    def __init__(self, config: AppConfig, source: PacketSource) -> None:
-        self.config = config
-        self.source = source
-        self.engine = PolicyEngine(config.rules)
-        self.metrics = Metrics()
-        self.event_log = EventLog(config.logging)
-        self.notifier = build_notifier(config.notifications, self.metrics)
-        self.health = HealthServer(
-            config.health,
-            self.metrics,
-            rules_provider=self.engine.snapshot,
-            events_provider=self.event_log.recent,
-        )
-
-    def start(self) -> None:
-        try:
-            self.notifier.start()
-            self.health.start()
-            logging.getLogger(__name__).info(
-                "Monitoring interface=%s filter=%s",
-                self.config.sensor.interface or "default",
-                self.config.sensor.bpf_filter,
-            )
-            self.source.start(
-                self.on_packet, on_established=lambda: self.metrics.set_ready(True)
-            )
-        except Exception:
-            self.stop()
-            raise
-
-    def on_packet(self, metadata: PacketMetadata | None) -> None:
-        self.metrics.mark_packet(decoded=metadata is not None)
-        if metadata is None:
-            return
-
-        for rule in self.engine.evaluate(metadata):
-            self.metrics.mark_violation()
-            event = create_event(metadata, rule)
-            self.event_log.write(event)
-            self.notifier.notify(event)
-
-    def reload_rules(self, rules: tuple[Rule, ...]) -> None:
-        self.engine.replace_rules(rules)
-        logging.getLogger(__name__).info("Reloaded %d policy rules", len(rules))
-
-    def stop(self) -> None:
-        self.metrics.set_ready(False)
-        self.source.stop()
-        self.health.stop()
-        self.notifier.stop()
-        self.event_log.close()
 
 
 class LiveMonitor:
@@ -89,9 +32,19 @@ class LiveMonitor:
         self._config = config
         self._config_path = config_path
         self._boot_id = boot_id or str(uuid.uuid4())
-        self._evidence = evidence or FileEvidenceWriter(Path(config.journal.file))
+        if evidence is None:
+            journal = config.journal
+            evidence = FileEvidenceWriter(
+                Path(journal.file),
+                max_bytes=journal.max_bytes,
+                backup_count=journal.backup_count,
+                fsync_interval_seconds=journal.fsync_interval_seconds,
+                emergency_max_events=journal.emergency_max_events,
+                emergency_max_bytes=journal.emergency_max_bytes,
+            )
+        self._evidence = evidence
+        self._notifier = build_v2_notifier(config.notifications)
         if sources is None:
-            # Lazy import so non-Linux pure tests can inject MemoryObservationSource.
             from .capture_afpacket import build_af_packet_sources
 
             sources = build_af_packet_sources(config, boot_id=self._boot_id)
@@ -108,6 +61,7 @@ class LiveMonitor:
             ),
             evidence=self._evidence,
             boot_id=self._boot_id,
+            notifier=self._notifier,
         )
         enabled = config.http.probe.enabled if probe_enabled is None else probe_enabled
         self._probe = ProbeServer(
@@ -129,6 +83,7 @@ class LiveMonitor:
         return self._sources
 
     def start(self) -> None:
+        self._notifier.start()
         self._worker.start()
         for source in self._sources:
             source.start(self._worker.observation_sink, self._worker.control_sink)
@@ -144,24 +99,19 @@ class LiveMonitor:
             source.stop()
         self._worker.stop(force=force)
         self._probe.stop()
+        self._notifier.stop(
+            drain_seconds=self._config.notifications.shutdown_drain_seconds
+        )
         close = getattr(self._evidence, "close", None)
         if callable(close):
             close()
 
     def request_reload(self) -> None:
-        import time
-
-        from .models import ControlMessage
-
         self._worker.control_sink(
             ControlMessage(kind="reload_request", monotonic_at=time.monotonic())
         )
 
     def request_shutdown(self, *, force: bool = False) -> None:
-        import time
-
-        from .models import ControlMessage
-
         self._worker.control_sink(
             ControlMessage(
                 kind="force_shutdown" if force else "shutdown",

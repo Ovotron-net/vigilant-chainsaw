@@ -18,6 +18,7 @@ from .models import (
     Observation,
     OperationalSnapshot,
 )
+from .notifications_v2 import NullV2Notifier, V2Notifier
 from .ops_state import OperationalStateMachine
 from .policy import CompiledPolicy, compile_policy, evaluate_policy
 
@@ -185,10 +186,12 @@ class PipelineWorker:
         evidence: EvidenceWriter,
         boot_id: str,
         clock: Any | None = None,
+        notifier: V2Notifier | None = None,
     ) -> None:
         self._config = config
         self._pipeline_config = pipeline_config
         self._evidence = evidence
+        self._notifier: V2Notifier = notifier or NullV2Notifier()
         self._boot_id = boot_id
         self._clock = clock or time
         self._policy = compile_policy(config.rules, config.policy_revision)
@@ -281,11 +284,11 @@ class PipelineWorker:
 
     def _run(self) -> None:
         try:
-            while not self._stop.is_set() or self._observations.qsize() > 0:
+            while True:
                 for message in self._control.drain():
                     self._handle_control(message)
-                    if message.kind in {"shutdown", "force_shutdown"} and (
-                        message.kind == "force_shutdown" or self._force
+                    if message.kind == "force_shutdown" or (
+                        message.kind == "shutdown" and self._force
                     ):
                         self._shutdown(force=True)
                         return
@@ -298,7 +301,12 @@ class PipelineWorker:
                         break
                     self._handle_observation(obs)
                 else:
+                    # Processed a full batch; immediately continue.
                     continue
+                if self._stop.is_set() and self._observations.qsize() == 0:
+                    # Stop requested without an explicit shutdown control: still close cleanly.
+                    self._shutdown(force=self._force)
+                    return
                 self._control.wait(self._pipeline_config.timer_interval_seconds)
         except Exception:
             logger.exception("pipeline worker crashed")
@@ -321,20 +329,20 @@ class PipelineWorker:
         )
         now = datetime.now(UTC)
         for transition in transitions:
-            self._evidence.commit(
-                self._sequencer.wrap_episode(transition, emitted_at=now)
-            )
+            envelope = self._sequencer.wrap_episode(transition, emitted_at=now)
+            self._evidence.commit(envelope)
+            self._notifier.notify(envelope)
         self._publish()
 
     def _handle_control(self, message: ControlMessage) -> None:
         if message.kind == "timer":
             now = message.monotonic_at
             for transition in self._tracker.advance(now):
-                self._evidence.commit(
-                    self._sequencer.wrap_episode(
-                        transition, emitted_at=datetime.now(UTC)
-                    )
+                envelope = self._sequencer.wrap_episode(
+                    transition, emitted_at=datetime.now(UTC)
                 )
+                self._evidence.commit(envelope)
+                self._notifier.notify(envelope)
             self._maybe_clear_drop_reasons(now)
             self._publish()
             return
@@ -468,9 +476,11 @@ class PipelineWorker:
         old_rev = self._config.policy_revision
         now = self._clock.monotonic()
         for transition in self._tracker.close_all("policy_reload", lifecycle_time=now):
-            self._evidence.commit(
-                self._sequencer.wrap_episode(transition, emitted_at=datetime.now(UTC))
+            envelope = self._sequencer.wrap_episode(
+                transition, emitted_at=datetime.now(UTC)
             )
+            self._evidence.commit(envelope)
+            self._notifier.notify(envelope)
         self._config = new_config
         self._policy = compile_policy(new_config.rules, new_config.policy_revision)
         self._ops.set_policy(new_config.policy_revision, new_config.config_revision)
@@ -496,10 +506,15 @@ class PipelineWorker:
             self._handle_observation(obs)
         now = self._clock.monotonic()
         for transition in self._tracker.close_all("shutdown", lifecycle_time=now):
-            self._evidence.commit(
-                self._sequencer.wrap_episode(transition, emitted_at=datetime.now(UTC))
+            envelope = self._sequencer.wrap_episode(
+                transition, emitted_at=datetime.now(UTC)
             )
+            self._evidence.commit(envelope)
+            self._notifier.notify(envelope)
         self._evidence.flush()
+        self._notifier.stop(
+            drain_seconds=self._config.notifications.shutdown_drain_seconds
+        )
         self._stop.set()
 
     def _commit_system(
@@ -519,3 +534,4 @@ class PipelineWorker:
             else self._config.policy_revision,
         )
         self._evidence.commit(envelope)
+        self._notifier.notify(envelope)

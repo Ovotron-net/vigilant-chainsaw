@@ -1,8 +1,10 @@
 import time
+from dataclasses import replace
 
 from factories import observation, policy_rule, v2_config
 
 from ibn_monitor.capture import MemoryObservationSource
+from ibn_monitor.config import runtime_identity_hash
 from ibn_monitor.episodes import EpisodeSettings, EpisodeTracker
 from ibn_monitor.evidence_stub import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
@@ -60,3 +62,38 @@ def test_live_monitor_with_memory_source():
         )
     finally:
         monitor.stop()
+
+
+def test_runtime_identity_ignores_rules_only():
+    base = v2_config()
+    changed_rules = v2_config(rules=(policy_rule(id="OTHER"),))
+    assert runtime_identity_hash(base) == runtime_identity_hash(changed_rules)
+    changed_episodes = replace(base, episodes=replace(base.episodes, idle_seconds=99.0))
+    assert runtime_identity_hash(base) != runtime_identity_hash(changed_episodes)
+
+
+def test_shutdown_closes_episodes():
+    config = v2_config()
+    evidence = MemoryEvidenceWriter()
+    source = MemoryObservationSource("wan")
+    monitor = LiveMonitor(
+        config,
+        config_path="config/policy.v2.example.json",
+        sources=(source,),
+        evidence=evidence,
+        boot_id="boot-stop",
+        probe_enabled=False,
+    )
+    monitor.start()
+    try:
+        source.push(observation(capture_point="wan", monotonic_at=time.monotonic()))
+        deadline = time.time() + 2
+        while time.time() < deadline and not any(
+            getattr(e.payload, "phase", None) == "start" for e in evidence.events
+        ):
+            time.sleep(0.05)
+    finally:
+        monitor.stop()
+    closes = [e for e in evidence.events if getattr(e.payload, "phase", None) == "close"]
+    assert closes
+    assert closes[-1].payload.close_reason == "shutdown"
