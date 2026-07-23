@@ -71,54 +71,89 @@ ibn-monitor migrate-policy --config config/policy.json --output build/policy.v2.
 
 ## Architecture
 
-```text
-Network interface / PCAP
-          │
-          ▼
-  PacketSource adapter          capture.py  (live | PCAP | test)
-          │
-          ▼
-  packet_to_metadata()
-          │
-          ▼
-  PolicyEngine.evaluate()       engine.py   (RLock, SIGHUP rule swap)
-          │
-     matched Rules
-          │
-          ▼
-  create_event() → Event        models.py
-          │
-          ├──▶ EventLog.write()     events.py  (JSONL + recent ring)
-          ├──▶ Notifier.notify()    events.py  (Null | Webhook worker)
-          └──▶ Metrics              events.py  (Prometheus via health.py)
+Live path is Linux-only with policy **version 2**. Offline analysis uses classic PCAP replay (any OS, no root). Enforcement is always a separate render/apply step — the sensor never drops packets.
 
-policy.json ──▶ render-nftables ──▶ gateway nftables  (separate step)
+```mermaid
+flowchart TD
+    subgraph inputs [Inputs]
+        NIC[Network interface]
+        PCAP[Classic PCAP file]
+        POLCFG[policy v2 JSON]
+    end
+
+    subgraph capture [Capture and decode]
+        AFP[AF_PACKET + cBPF<br/>capture_afpacket.py]
+        STG[Staged MSG_PEEK reader<br/>staged_reader.py]
+        DEC[Header-only decode<br/>decode.py]
+        PCP[Streaming PCAP reader<br/>pcap.py]
+    end
+
+    subgraph pipeline [Ordered pipeline]
+        OQ[Observation queue<br/>drop-oldest]
+        CTL[Control lane<br/>reload / stats / shutdown]
+        WORK[PipelineWorker<br/>pipeline.py]
+        MATCH[evaluate_policy<br/>policy.py]
+        EP[EpisodeTracker<br/>episodes.py]
+        SEQ[EvidenceSequencer<br/>events.py]
+    end
+
+    subgraph outputs [Evidence and surfaces]
+        JRN[JournalWriter JSONL<br/>journal.py]
+        WH[WebhookV2Notifier<br/>notifications_v2.py]
+        RM[Atomic read model<br/>read_model.py]
+        PROBE[Probe HTTP<br/>/healthz /readyz /metrics]
+        OPS[Ops HTTP + dashboard<br/>/ /api/state]
+    end
+
+    subgraph offline [Offline]
+        RPL[ibn-monitor replay<br/>replay.py]
+    end
+
+    subgraph enforce [Enforcement separate step]
+        RNF[render-nftables<br/>enforcement.py]
+        NFT[nftables table]
+    end
+
+    NIC --> AFP --> STG --> DEC --> OQ
+    PCAP --> PCP --> RPL
+    RPL --> MATCH
+    POLCFG --> MATCH
+    POLCFG --> RNF
+    OQ --> WORK
+    CTL --> WORK
+    WORK --> MATCH --> EP --> SEQ
+    SEQ --> JRN
+    JRN --> WH
+    JRN --> RM
+    RM --> PROBE
+    RM --> OPS
+    RNF --> NFT
+    RPL --> SEQ
 ```
+
+**Live data flow (v2):** AF_PACKET → decode → Observation queue → `PipelineWorker` → `evaluate_policy` → `EpisodeTracker` → `EvidenceSequencer` → `JournalWriter` → webhook / ops snapshot / probe.
+
+**Offline:** `ibn-monitor replay` streams classic PCAP through the same policy and episode path (no root). **Live:** Linux + policy version 2 only.
 
 Modules under `src/ibn_monitor/` — no web framework, no ORM:
 
 | Module | Role |
 |---|---|
-| `models.py` | Frozen dataclasses: v1 `PacketMetadata`/`Rule`/`Event`; v2 `Observation`/`PolicyRule`/episodes/evidence |
-| `config.py` | V1 `load_config`; v2 `validate_v2_config` / `load_v2_config` with diagnostics + revisions |
-| `capture.py` | V1 `PacketSource` Protocol, Scapy live/PCAP adapters, metadata extraction |
-| `engine.py` | V1 pure CIDR/protocol/port matching; thread-safe rule replace |
-| `policy.py` | V2 compiled policy, all-match evaluation, overlap diagnostics |
-| `decode.py` | Bounded IPv4/IPv6 header decoder (no Scapy, no payload) |
-| `pcap.py` | Streaming classic-PCAP reader (rejects PCAPNG) |
-| `episodes.py` | Deterministic violation-episode state machine |
-| `migration.py` | Explicit v1 → v2 policy migration |
-| `replay.py` | Event-time v2 PCAP replay + evidence JSONL + summary |
-| `events.py` | V1 `Metrics`/`EventLog`/`Notifier`; v2 `EvidenceSequencer` |
-| `health.py` | HTTP: `/`, `/api/state`, `/healthz`, `/readyz`, `/metrics` |
-| `dashboard.py` | Embedded SPA (OKLCH tokens, polls `/api/state` every 3s) |
-| `enforcement.py` | nftables render for v1 `action=drop` |
-| `monitor.py` | Composition root: engine + log + notifier + health + source |
-| `cli.py` | `validate`, `check`, `migrate-policy`, `replay`, `render-nftables`, `run` |
+| `models.py` | Frozen domain types: v2 `Observation`/`PolicyRule`/episodes/evidence; transitional v1 `Rule`/`Event` for render/check |
+| `config.py` | V1 `load_config` (render/migrate source); v2 `validate_v2_config`/`load_v2_config` + `runtime_identity_hash` |
+| `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
+| `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
+| `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |
+| `decode.py` / `pcap.py` / `policy.py` / `episodes.py` / `replay.py` | Pure v2 decode, PCAP, match, episodes, offline replay |
+| `pipeline.py` / `ops_state.py` / `read_model.py` | Ordered worker, ops state, atomic operations projection |
+| `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
+| `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
+| `monitor.py` | `LiveMonitor` composition root |
+| `migration.py` / `cli.py` | v1→v2 migrate; validate/check/replay/run/render-nftables |
+| `enforcement.py` | V1 `render_nftables` + v2 topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
+| `engine.py` / `events.py` / `health.py` | V1 check/render helpers + legacy metrics |
 
-**v2 runtime:** AF_PACKET live capture (Linux), classic-PCAP `replay`, durable journal, split probe/ops HTTP, topology-aware `render-nftables`, and hardened deploy units. Scapy is not a dependency. See [docs/operator/runbook.md](docs/operator/runbook.md).
-
-Domain vocabulary lives in [CONTEXT.md](CONTEXT.md). Agent/contributor conventions live in [AGENTS.md](AGENTS.md).
+See [docs/operator/runbook.md](docs/operator/runbook.md) for operations. Domain vocabulary: [CONTEXT.md](CONTEXT.md). Contributor conventions: [AGENTS.md](AGENTS.md).
 
 ## Requirements
 
