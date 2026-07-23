@@ -1,96 +1,54 @@
 # AGENTS.md — ibn-monitor
 
-Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP metadata via Scapy, evaluates it against declarative JSON policies, logs violations as JSONL, and renders `action=drop` rules into nftables.
+Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP header metadata via AF_PACKET, evaluates it against declarative JSON policies, logs schema-v2 evidence as JSONL, optionally notifies via webhook, and can render v1 `action=drop` rules into nftables.
 
 ## Architecture
 
-Ten focused modules under `src/ibn_monitor/`; no framework, no ORM:
-
 | Module | Role |
 |---|---|
-| `models.py` | Frozen dataclasses: `PacketMetadata`, `Rule`. All immutable (`frozen=True, slots=True`). |
-| `config.py` | Loads and validates `policy.json` → `AppConfig`. Raises `ConfigError` on bad data. |
-| `capture.py` | `PacketSource` seam (`typing.Protocol`) plus the two Scapy adapters: `ScapyLiveSource` (AsyncSniffer) and `PcapReplaySource` (offline replay). Owns `packet_to_metadata()` and all Scapy imports. |
-| `engine.py` | `PolicyEngine` — evaluates packets against rules using `ipaddress` CIDR matching. Thread-safe via `RLock` (supports live SIGHUP reload). Pure policy; no Scapy. |
-| `events.py` | `Metrics`, `EventLog` (JSONL + recent ring), `Notifier` seam (`NullNotifier` / `WebhookNotifier`). |
-| `health.py` | Minimal HTTP server exposing `/healthz`, `/readyz`, `/metrics` (Prometheus text format), `/api/state` (metrics + rules + recent events JSON), and `/` (embedded HTML dashboard). |
-| `dashboard.py` | Static single-page dashboard served at `/`. Semantic OKLCH design-token CSS embedded as a Python string; polls `/api/state` every 3 s. No build step, no external assets. |
-| `enforcement.py` | Renders `action=drop` rules into an `inet ibn_monitor` nftables table. |
-| `monitor.py` | `MonitorService` — wires engine, EventLog, Notifier, and health around an injected `PacketSource`. |
-| `cli.py` | Four subcommands: `validate`, `check`, `render-nftables`, `run`. Composition root: picks the `PacketSource` adapter for `run`. |
+| `models.py` | Frozen domain types: v2 `Observation`/`PolicyRule`/episodes/evidence; transitional v1 `Rule`/`Event` for render/check |
+| `config.py` | V1 `load_config` (render/migrate source); v2 `validate_v2_config`/`load_v2_config` + `runtime_identity_hash` |
+| `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
+| `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
+| `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |
+| `decode.py` / `pcap.py` / `policy.py` / `episodes.py` / `replay.py` | Pure v2 decode, PCAP, match, episodes, offline replay |
+| `pipeline.py` / `ops_state.py` / `read_model.py` | Ordered worker, ops state, atomic operations projection |
+| `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
+| `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
+| `monitor.py` | `LiveMonitor` composition root |
+| `migration.py` / `cli.py` | v1→v2 migrate; validate/check/replay/run/render-nftables |
+| `enforcement.py` | V1 `render_nftables` + v2 topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
+| `engine.py` / `events.py` / `health.py` | V1 check/render helpers + legacy metrics |
 
-**Data flow**: `PacketSource` adapter (capture) → `packet_to_metadata()` → callback with `PacketMetadata | None` → `PolicyEngine.evaluate()` → matched `Rule` list → `create_event()` → `EventLog.write()` + `Notifier.notify()` → JSONL + optional webhook + metrics.
+**Live data flow (v2):** AF_PACKET → decode → Observation queue → PipelineWorker → evaluate_policy → EpisodeTracker → EvidenceSequencer → JournalWriter → WebhookV2Notifier → ops snapshot / probe.
 
-**PacketSource contract**: `start(callback)` returns when capture is established (live) or the source is exhausted (finite: PCAP replay, in-memory test sources). `stop()` is idempotent. Tests inject an in-memory source — no Scapy mocking needed for `MonitorService` tests.
+**Offline:** `ibn-monitor replay` (classic PCAP, no root). **Live:** Linux + policy version 2 only.
 
 ## Essential Commands
 
 ```bash
-# Install for development
-pip install -e ".[dev]"       # installs pytest, pytest-cov, ruff
-
-# Run tests with coverage
-make test                     # pytest tests/ --cov
-
-# Lint
-make lint                     # ruff check .
-
-# Validate policy.json against schema
-make validate                 # ibn-monitor validate --config config/policy.json
-
-# Test a specific flow without capturing packets (exit code 2 = match found)
-make check
-ibn-monitor check --config config/policy.json \
-  --source 10.20.5.14 --destination 10.50.10.8 --protocol tcp --destination-port 5432
-
-# Replay a PCAP file (no root needed)
-ibn-monitor run --config config/policy.json --pcap test-traffic.pcap
-
-# Render nftables rules (does not apply them)
-ibn-monitor render-nftables --config config/policy.json --output build/ibn-monitor.nft
-
-# Docker (requires Linux for live capture)
-make docker                   # docker compose up --build -d
+pip install -e ".[dev]"
+make test                 # excludes linux_raw / linux_perf markers
+make lint
+make release-check        # lint + tests + microbench + validate + replay + wheel
+make validate-v2
+make replay-v2
+make microbench
+make nftables-v2
+# Privileged Linux lab only:
+# make test-linux-raw
+ibn-monitor migrate-policy --config config/policy.json --output build/policy.v2.json \
+  --sensor-id edge-gw-01 --topology gateway --capture-point wan=eth0
+# Live (Linux only):
+ibn-monitor run --config config/policy.v2.example.json
 ```
 
-## Configuration
-
-`config/policy.json` is validated against the packaged schema `ibn_monitor/policy.schema.json` at startup. Schema owns structure (enums, ranges, `additionalProperties`, ports-only-for-tcp/udp). Semantic checks in `config.py`:
-
-- Rule IDs must be unique across the file.
-- Each CIDR must parse via `ip_network(..., strict=False)`.
-- `notifications.webhook_url_env` names an **environment variable** that holds the URL (never the URL itself).
-- SIGHUP reloads rules only; changes to `sensor`, `logging`, or `health` require a restart.
-
-## Testing Patterns
-
-Tests live in `tests/`; conftest disables Scapy route auto-loading:
-
-```python
-# conftest.py — prevents Scapy from reading host routing table in CI
-from scapy.config import conf
-
-conf.route_autoload = False
-conf.route6_autoload = False
-```
-
-Shared factories live in `tests/factories.py` (`rule`, `metadata`, `app_config`) with overridable defaults. Prefer importing those rather than duplicating helpers per test module:
-
-```python
-from factories import rule, metadata, app_config
-
-r = rule(id="OTHER", action="alert")
-pkt = metadata(destination_port=443)
-cfg = app_config(tmp_path, (r,))
-```
-
-Temporary config files use pytest's `tmp_path` fixture; no mocking of Scapy is needed for engine/config unit tests.
+Operator docs: `docs/operator/runbook.md`, `migration-and-events.md`, `release-checklist.md`.
 
 ## Key Conventions
 
-- **Frozen models everywhere**: `PacketMetadata` and `Rule` are `@dataclass(frozen=True, slots=True)`. Do not add mutable state to models.
-- **Thread boundaries**: Only `WebhookNotifier` crosses thread boundaries; webhook POSTs go onto a `queue.Queue` consumed by a daemon thread. `PolicyEngine` uses `RLock` for atomic rule swap on reload.
-- **`ConfigError` for validation failures**: Raise `ConfigError` (not `ValueError`) for any policy/config problem caught in `config.py`.
-- **Metrics naming**: Prometheus counters follow `ibn_monitor_<noun>_total`; gauges use `ibn_monitor_<noun>` (see `events.py`).
-- **No payload capture**: The sensor only extracts IP/transport header fields; never buffer or log packet payload bytes.
-- **`action` semantics**: `alert` = detect and log only. `drop` = detect, log, AND eligible for nftables rendering. The sensor itself never drops packets; enforcement is a separate `render-nftables` step.
+- Frozen models; no payload capture.
+- Scapy is **not** a runtime dependency.
+- Sequence allocation stays on `EvidenceSequencer` (worker); journal is durability only.
+- SIGHUP reloads rules only when `runtime_identity_hash` is unchanged.
+- Raise `ConfigError` for config problems.

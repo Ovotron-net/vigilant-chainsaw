@@ -1,0 +1,10 @@
+# Optional: re-apply nftables when the rendered artifact is updated by automation.
+[Unit]
+Description=Watch ibn-monitor rendered nftables artifact
+
+[Path]
+PathChanged=/var/lib/ibn-monitor/ibn-monitor.nft
+Unit=ibn-monitor-nftables.service
+
+[Install]
+WantedBy=multi-user.target

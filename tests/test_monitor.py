@@ -1,74 +1,58 @@
-import json
+import time
 
-import pytest
-from factories import app_config, metadata, rule
+from factories import observation, v2_config
 
-from ibn_monitor.monitor import MonitorService
-
-
-class InMemorySource:
-    """Finite PacketSource adapter for tests: pushes canned metadata, then returns."""
-
-    def __init__(self, items):
-        self.items = items
-        self.stopped = False
-
-    def start(self, callback, *, on_established=None):
-        if on_established is not None:
-            on_established()
-        for item in self.items:
-            callback(item)
-
-    def stop(self):
-        self.stopped = True
+from ibn_monitor.capture import MemoryObservationSource
+from ibn_monitor.evidence_stub import MemoryEvidenceWriter
+from ibn_monitor.monitor import LiveMonitor
 
 
-class FailingSource(InMemorySource):
-    def start(self, callback, *, on_established=None):
-        raise OSError("capture startup failed")
-
-
-def test_monitor_logs_violation_through_the_seam(tmp_path):
-    config = app_config(tmp_path, (rule(),))
-    source = InMemorySource([metadata(), metadata(destination_port=443), None])
-    service = MonitorService(config, source)
-
+def test_live_monitor_processes_match_and_stops_cleanly():
+    config = v2_config()
+    evidence = MemoryEvidenceWriter()
+    source = MemoryObservationSource("wan")
+    monitor = LiveMonitor(
+        config,
+        config_path="config/policy.v2.example.json",
+        sources=(source,),
+        evidence=evidence,
+        boot_id="boot-mon",
+        probe_enabled=False,
+        operations_enabled=False,
+    )
+    monitor.start()
     try:
-        service.start()  # finite source: returns after delivery
+        source.push(observation(capture_point="wan", monotonic_at=time.monotonic()))
+        deadline = time.time() + 2
+        while time.time() < deadline and not any(
+            getattr(e.payload, "phase", None) == "start" for e in evidence.events
+        ):
+            time.sleep(0.05)
+        assert any(getattr(e.payload, "phase", None) == "start" for e in evidence.events)
+        snap = monitor.snapshot()
+        assert snap.sensor_id == config.sensor.id
+        assert snap.boot_id == "boot-mon"
     finally:
-        service.stop()
-
+        monitor.stop()
     assert source.stopped
-    snapshot = service.metrics.snapshot()
-    assert snapshot["packets_seen"] == 3
-    assert snapshot["packets_decoded"] == 2
-    assert snapshot["violations"] == 1
-
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    assert len(events) == 1
-    assert events[0]["rule"]["id"] == "DEV-DB"
-    assert events[0]["network"]["destination_port"] == 5432
 
 
-def test_monitor_reload_swaps_rules(tmp_path):
-    config = app_config(tmp_path, (rule(),))
-    service = MonitorService(config, InMemorySource([]))
+def test_live_monitor_request_reload_is_non_blocking():
+    config = v2_config()
+    source = MemoryObservationSource("wan")
+    monitor = LiveMonitor(
+        config,
+        config_path="config/policy.v2.example.json",
+        sources=(source,),
+        evidence=MemoryEvidenceWriter(),
+        boot_id="boot-reload",
+        probe_enabled=False,
+        operations_enabled=False,
+    )
+    monitor.start()
     try:
-        service.reload_rules((rule(id="OTHER", enabled=False),))
-        assert service.engine.snapshot()[0].id == "OTHER"
+        monitor.request_reload()
+        time.sleep(0.2)
+        assert monitor.snapshot().policy_revision == config.policy_revision
     finally:
-        service.stop()
-
-
-def test_monitor_rolls_back_failed_startup(tmp_path):
-    source = FailingSource([])
-    service = MonitorService(app_config(tmp_path, (rule(),)), source)
-
-    with pytest.raises(OSError, match="capture startup failed"):
-        service.start()
-
-    assert source.stopped
-    assert service.metrics.snapshot()["ready"] is False
+        monitor.stop()
