@@ -28,19 +28,22 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 
 ```bash
 pip install -e ".[dev]"
-make test
+make test                 # excludes linux_raw / linux_perf markers
 make lint
+make release-check        # lint + tests + microbench + validate + replay + wheel
 make validate-v2
-python scripts/generate_test_pcap.py
 make replay-v2
+make microbench
+make nftables-v2
+# Privileged Linux lab only:
+# make test-linux-raw
 ibn-monitor migrate-policy --config config/policy.json --output build/policy.v2.json \
   --sensor-id edge-gw-01 --topology gateway --capture-point wan=eth0
 # Live (Linux only):
 ibn-monitor run --config config/policy.v2.example.json
-# Topology-aware v2 nftables (unprivileged render; privileged apply separate):
-make nftables-v2
-# sudo ./scripts/apply-nftables.sh config/policy.v2.example.json
 ```
+
+Operator docs: `docs/operator/runbook.md`, `migration-and-events.md`, `release-checklist.md`.
 
 ## Key Conventions
 

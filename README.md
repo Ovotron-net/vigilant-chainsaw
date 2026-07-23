@@ -116,7 +116,7 @@ Modules under `src/ibn_monitor/` — no web framework, no ORM:
 | `monitor.py` | Composition root: engine + log + notifier + health + source |
 | `cli.py` | `validate`, `check`, `migrate-policy`, `replay`, `render-nftables`, `run` |
 
-**Phase 1 boundary:** live capture and nftables remain on the v1 path. V2 does not import Scapy. AF_PACKET live capture, durable v2 journal, split HTTP, and topology-aware nftables are later phases.
+**v2 runtime:** AF_PACKET live capture (Linux), classic-PCAP `replay`, durable journal, split probe/ops HTTP, topology-aware `render-nftables`, and hardened deploy units. Scapy is not a dependency. See [docs/operator/runbook.md](docs/operator/runbook.md).
 
 Domain vocabulary lives in [CONTEXT.md](CONTEXT.md). Agent/contributor conventions live in [AGENTS.md](AGENTS.md).
 
