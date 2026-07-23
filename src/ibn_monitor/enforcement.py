@@ -13,8 +13,7 @@ def render_nftables(config: AppConfig) -> str:
         "",
         "add table inet ibn_monitor",
         "flush table inet ibn_monitor",
-        "add chain inet ibn_monitor forward "
-        "{ type filter hook forward priority filter; policy accept; }",
+        "add chain inet ibn_monitor forward { type filter hook forward priority filter; policy accept; }",
         "",
     ]
 
@@ -27,8 +26,7 @@ def render_nftables(config: AppConfig) -> str:
         for expression in _rule_expressions(rule):
             lines.append(f"# {comment}")
             lines.append(
-                f'add rule inet ibn_monitor forward {expression} limit rate 10/second '
-                f'log prefix "IBN {safe_id} "'
+                f'add rule inet ibn_monitor forward {expression} limit rate 10/second log prefix "IBN {safe_id} "'
             )
             lines.append(f"add rule inet ibn_monitor forward {expression} counter drop")
             rendered += 1
