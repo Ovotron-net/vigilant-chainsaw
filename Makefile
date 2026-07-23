@@ -1,4 +1,4 @@
-.PHONY: install dev test lint validate check pcap docker nftables
+.PHONY: install dev test lint validate check pcap docker nftables validate-v2 replay-v2
 
 install:
 	python -m pip install .
@@ -28,3 +28,9 @@ docker:
 nftables:
 	ibn-monitor render-nftables --config config/policy.json --output build/ibn-monitor.nft
 	sudo nft --check --file build/ibn-monitor.nft
+
+validate-v2:
+	ibn-monitor validate --config config/policy.v2.example.json --strict
+
+replay-v2:
+	ibn-monitor replay --config config/policy.v2.example.json --pcap test-traffic.pcap --output build/replay-v2.jsonl --summary-output -
