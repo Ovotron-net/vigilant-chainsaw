@@ -13,7 +13,8 @@ from .episodes import EpisodeSettings, EpisodeTracker
 from .events import EvidenceSequencer, serialize_evidence
 from .models import Observation
 from .pcap import iter_pcap_observations
-from .policy import compile_policy, evaluate_policy
+from .pipeline import process_observation
+from .policy import compile_policy
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,20 +106,20 @@ def _process_observation(
     counters: _Counters,
     policy_revision: str,
 ) -> None:
-    transitions = tracker.advance(lifecycle_time)
-    _write_transitions(transitions, sequencer, output, counters)
+    from .policy import evaluate_policy
+
     matches = evaluate_policy(policy, observation)
     if matches:
         counters.matched_observations += 1
         counters.rule_matches += len(matches)
-    for match in sorted(matches, key=lambda item: item.rule.id):
-        emitted = tracker.observe(
-            match.rule,
-            observation,
-            policy_revision=policy_revision,
-            lifecycle_time=lifecycle_time,
-        )
-        _write_transitions(emitted, sequencer, output, counters)
+    transitions = process_observation(
+        observation,
+        lifecycle_time=lifecycle_time,
+        policy=policy,
+        tracker=tracker,
+        policy_revision=policy_revision,
+    )
+    _write_transitions(transitions, sequencer, output, counters)
 
 
 def replay_pcap(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import platform
 import signal
 import sys
 import threading
@@ -24,7 +25,7 @@ from .enforcement import render_nftables
 from .engine import PolicyEngine
 from .migration import MigrationRequest, migrate_v1_policy
 from .models import FieldPresence, Observation, PacketMetadata
-from .monitor import MonitorService
+from .monitor import LiveMonitor, MonitorService
 from .policy import compile_policy, evaluate_policy
 from .replay import replay_pcap
 
@@ -318,6 +319,105 @@ def _replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run(args: argparse.Namespace) -> int:
+    if args.pcap:
+        # Transitional: still allow v1 offline path via Scapy until operators migrate to replay.
+        version = detect_config_version(args.config)
+        if version == 2:
+            raise ConfigError("run --pcap is not supported for v2; use: ibn-monitor replay")
+        config = load_config(args.config)
+        service = MonitorService(config, PcapReplaySource(args.pcap))
+        try:
+            service.start()
+        finally:
+            service.stop()
+        return 0
+
+    version = detect_config_version(args.config)
+    if version == 1:
+        # Keep v1 live path until Scapy removal PR lands; prefer v2.
+        config = load_config(args.config)
+        if args.interface:
+            config = replace(config, sensor=replace(config.sensor, interface=args.interface))
+        service = MonitorService(config, ScapyLiveSource(config.sensor))
+        stop_event = threading.Event()
+        reload_event = threading.Event()
+
+        def request_stop(signum: int, frame: object) -> None:
+            stop_event.set()
+
+        def request_reload(signum: int, frame: object) -> None:
+            reload_event.set()
+
+        signal.signal(signal.SIGINT, request_stop)
+        signal.signal(signal.SIGTERM, request_stop)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, request_reload)
+        try:
+            service.start()
+            while not stop_event.wait(0.5):
+                if reload_event.is_set():
+                    reload_event.clear()
+                    try:
+                        reloaded = load_config(args.config)
+                    except ConfigError as exc:
+                        logging.error("Policy reload failed; keeping existing rules: %s", exc)
+                    else:
+                        service.reload_rules(reloaded.rules)
+        finally:
+            service.stop()
+        return 0
+
+    if version != 2:
+        raise ConfigError(f"unsupported config version: {version}")
+    if platform.system().lower() != "linux":
+        raise ConfigError("v2 live run requires Linux AF_PACKET")
+
+    config = load_v2_config(args.config)
+    # Optional single-point interface override
+    if args.interface:
+        if len(config.sensor.capture_points) != 1:
+            raise ConfigError("--interface requires exactly one capture point")
+        from dataclasses import replace as dc_replace
+
+        point = dc_replace(config.sensor.capture_points[0], interface=args.interface)
+        config = dc_replace(
+            config, sensor=dc_replace(config.sensor, capture_points=(point,))
+        )
+
+    monitor = LiveMonitor(config, config_path=args.config)
+    stop_event = threading.Event()
+    force = {"signum": None}
+
+    def request_stop(signum: int, frame: object) -> None:
+        if stop_event.is_set():
+            force["signum"] = signum
+            monitor.request_shutdown(force=True)
+        else:
+            stop_event.set()
+            monitor.request_shutdown(force=False)
+
+    def request_reload(signum: int, frame: object) -> None:
+        monitor.request_reload()
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, request_reload)
+
+    try:
+        monitor.start()
+        while not stop_event.wait(0.5):
+            pass
+    finally:
+        monitor.stop(force=force["signum"] is not None)
+    if force["signum"] == signal.SIGINT:
+        return 130
+    if force["signum"] == getattr(signal, "SIGTERM", None):
+        return 143
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -351,46 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "run":
-            config = load_config(args.config)
-            if args.interface:
-                config = replace(config, sensor=replace(config.sensor, interface=args.interface))
-            if args.pcap:
-                service = MonitorService(config, PcapReplaySource(args.pcap))
-                try:
-                    service.start()  # blocks until the PCAP is exhausted
-                finally:
-                    service.stop()
-                return 0
-
-            service = MonitorService(config, ScapyLiveSource(config.sensor))
-            stop_event = threading.Event()
-            reload_event = threading.Event()
-
-            def request_stop(signum: int, frame: object) -> None:
-                stop_event.set()
-
-            def request_reload(signum: int, frame: object) -> None:
-                reload_event.set()
-
-            signal.signal(signal.SIGINT, request_stop)
-            signal.signal(signal.SIGTERM, request_stop)
-            if hasattr(signal, "SIGHUP"):
-                signal.signal(signal.SIGHUP, request_reload)
-
-            try:
-                service.start()
-                while not stop_event.wait(0.5):
-                    if reload_event.is_set():
-                        reload_event.clear()
-                        try:
-                            reloaded = load_config(args.config)
-                        except ConfigError as exc:
-                            logging.error("Policy reload failed; keeping existing rules: %s", exc)
-                        else:
-                            service.reload_rules(reloaded.rules)
-            finally:
-                service.stop()
-            return 0
+            return _run(args)
 
     except ConfigError as exc:
         logging.error("Configuration error: %s", exc)

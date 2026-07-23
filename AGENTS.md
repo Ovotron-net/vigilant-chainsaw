@@ -2,7 +2,7 @@
 
 Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP metadata via Scapy, evaluates it against declarative JSON policies, logs violations as JSONL, and renders `action=drop` rules into nftables.
 
-Phase 1 also ships an additive **v2 core/replay** path: explicit v2 policy, compiled matching, bounded header decoding, classic-PCAP event-time replay, and schema-v2 evidence envelopes. Live `run` and `render-nftables` remain v1 until later phases.
+Phase 1 ships an additive **v2 core/replay** path: explicit v2 policy, compiled matching, bounded header decoding, classic-PCAP event-time replay, and schema-v2 evidence envelopes. Phase 2 adds the **raw live pipeline** (`LiveMonitor`, AF_PACKET sources, ordered worker, ops state, minimal probe). V1 Scapy live path remains for version-1 configs; `render-nftables` stays v1 until Phase 5.
 
 ## Architecture
 

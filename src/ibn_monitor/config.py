@@ -380,6 +380,13 @@ def canonical_config_revision(config: PolicyV2Config) -> str:
     return _sha256(_config_wire(config))
 
 
+def runtime_identity_hash(config: PolicyV2Config) -> str:
+    """Hash every effective field outside the rule set (restart-only gate)."""
+    wire = _config_wire(config)
+    wire = {**wire, "rules": []}
+    return _sha256(wire)
+
+
 def _capture_point(raw: dict[str, Any], topology: Topology) -> CapturePointConfig:
     return CapturePointConfig(
         name=raw["name"],

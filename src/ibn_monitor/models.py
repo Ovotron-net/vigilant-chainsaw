@@ -25,6 +25,44 @@ EpisodeCloseReason = Literal[
     "source_exhausted",
     "shutdown",
 ]
+ControlKind = Literal[
+    "timer",
+    "shutdown",
+    "force_shutdown",
+    "reload_request",
+    "source_established",
+    "source_failed",
+    "source_retrying",
+    "source_recovered",
+    "source_stopped",
+    "source_stats",
+    "observation_dropped",
+]
+OperationalStateName = Literal["starting", "ready", "degraded", "stopping"]
+SourceLifecycleState = Literal["starting", "established", "failed", "retrying", "stopped"]
+SystemEventName = Literal[
+    "sensor_start",
+    "sensor_stopping",
+    "sensor_stop",
+    "source_established",
+    "source_failed",
+    "source_retrying",
+    "source_recovered",
+    "source_stopped",
+    "policy_reload_success",
+    "policy_reload_noop",
+    "policy_reload_failed",
+    "coverage_gap",
+    "kernel_drops_observed",
+]
+
+REASON_CAPTURE_POINT_UNAVAILABLE = "capture_point_unavailable"
+REASON_KERNEL_DROPS = "kernel_drops"
+REASON_APP_QUEUE_DROPS = "app_queue_drops"
+REASON_WORKER_DEAD = "worker_dead"
+REASON_JOURNAL_UNAVAILABLE = "journal_unavailable"
+REASON_NO_POLICY = "no_policy"
+REASON_SHUTDOWN = "shutdown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +236,65 @@ class EpisodeTransition:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceStatsSnapshot:
+    capture_point: str
+    source_generation: str
+    kernel_packets: int
+    kernel_drops: int
+    app_enqueue_ok: int
+    app_enqueue_drops: int
+    decode_complete: int
+    decode_partial: int
+    decode_undecodable: int
+
+
+@dataclass(frozen=True, slots=True)
+class ControlMessage:
+    kind: ControlKind
+    monotonic_at: float
+    capture_point: str | None = None
+    source_generation: str | None = None
+    reason_code: str | None = None
+    stats: SourceStatsSnapshot | None = None
+    detail: str | None = None
+    drops: int = 0
+    forcing_signum: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceStatus:
+    capture_point: str
+    interface: str
+    state: SourceLifecycleState
+    source_generation: str | None
+    last_error: str | None
+    kernel_packets: int
+    kernel_drops: int
+
+
+@dataclass(frozen=True, slots=True)
+class OperationalSnapshot:
+    state: OperationalStateName
+    reasons: frozenset[str]
+    ready: bool
+    policy_revision: str | None
+    config_revision: str | None
+    sources: tuple[SourceStatus, ...]
+    queue_depth: int
+    queue_capacity: int
+    app_queue_drops_total: int
+    kernel_drops_total: int
+    boot_id: str
+    sensor_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SystemPayload:
+    name: SystemEventName
+    fields: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
 class EvidenceEnvelope:
     schema_version: int
     event_id: str
@@ -207,12 +304,10 @@ class EvidenceEnvelope:
     sequence: int
     emitted_at: datetime
     policy_revision: str | None
-    payload: EpisodeTransition
+    payload: EpisodeTransition | SystemPayload
 
     def to_dict(self) -> dict[str, object]:
-        transition = self.payload
-        key = transition.key
-        return {
+        base: dict[str, object] = {
             "schema_version": self.schema_version,
             "event_id": self.event_id,
             "event_type": self.event_type,
@@ -221,44 +316,53 @@ class EvidenceEnvelope:
             "sequence": self.sequence,
             "emitted_at": self.emitted_at.isoformat(),
             "policy_revision": self.policy_revision,
-            "payload": {
-                "episode_id": transition.episode_id,
-                "phase": transition.phase,
-                "rule": {
-                    "id": transition.rule.id,
-                    "description": transition.rule.description,
-                    "severity": transition.rule.severity,
-                    "enforcement": transition.rule.enforcement,
-                },
-                "flow": {
-                    "ip_version": key.ip_version,
-                    "source": str(key.source) if key.source else None,
-                    "destination": str(key.destination) if key.destination else None,
-                    "protocol": key.protocol,
-                    "source_port": key.source_port,
-                    "destination_port": key.destination_port,
-                    "icmp_type": key.icmp_type,
-                    "icmp_code": key.icmp_code,
-                    "fields": key.fields,
-                    "decode_reason": key.decode_reason,
-                },
-                "first_observed_at": transition.first_observed_at.isoformat(),
-                "last_observed_at": transition.last_observed_at.isoformat(),
-                "duration_seconds": max(
-                    0.0,
-                    (transition.last_observed_at - transition.first_observed_at).total_seconds(),
-                ),
-                "observation_count": transition.observation_count,
-                "observed_bytes": transition.observed_bytes,
-                "late_observation_count": transition.late_observation_count,
-                "per_capture_point": {
-                    name: {
-                        "observations": observations,
-                        "observed_bytes": observed_bytes,
-                    }
-                    for name, observations, observed_bytes in transition.per_capture_point
-                },
-                "truncated": transition.truncated,
-                "close_reason": transition.close_reason,
-            },
         }
+        if isinstance(self.payload, SystemPayload):
+            payload: dict[str, object] = {"name": self.payload.name}
+            payload.update(self.payload.fields)
+            base["payload"] = payload
+            return base
+
+        transition = self.payload
+        key = transition.key
+        base["payload"] = {
+            "episode_id": transition.episode_id,
+            "phase": transition.phase,
+            "rule": {
+                "id": transition.rule.id,
+                "description": transition.rule.description,
+                "severity": transition.rule.severity,
+                "enforcement": transition.rule.enforcement,
+            },
+            "flow": {
+                "ip_version": key.ip_version,
+                "source": str(key.source) if key.source else None,
+                "destination": str(key.destination) if key.destination else None,
+                "protocol": key.protocol,
+                "source_port": key.source_port,
+                "destination_port": key.destination_port,
+                "icmp_type": key.icmp_type,
+                "icmp_code": key.icmp_code,
+                "fields": key.fields,
+                "decode_reason": key.decode_reason,
+            },
+            "first_observed_at": transition.first_observed_at.isoformat(),
+            "last_observed_at": transition.last_observed_at.isoformat(),
+            "duration_seconds": max(
+                0.0,
+                (transition.last_observed_at - transition.first_observed_at).total_seconds(),
+            ),
+            "observation_count": transition.observation_count,
+            "observed_bytes": transition.observed_bytes,
+            "late_observation_count": transition.late_observation_count,
+            "per_capture_point": {
+                name: {
+                    "observations": observations,
+                    "observed_bytes": observed_bytes,
+                }
+                for name, observations, observed_bytes in transition.per_capture_point
+            },
+            "truncated": transition.truncated,
+            "close_reason": transition.close_reason,
+        }
+        return base
