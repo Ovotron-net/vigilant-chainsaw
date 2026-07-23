@@ -32,7 +32,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-ibn_monitor = ["policy.schema.json"]
+ibn_monitor = ["policy.schema.json", "policy-v2.schema.json"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --cov=ibn_monitor --cov-report=term-missing"

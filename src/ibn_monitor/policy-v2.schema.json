@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ibn-monitor/policy-v2.schema.json",
+  "title": "ibn-monitor Policy v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sensor", "rules"],
+  "properties": {
+    "version": {"const": 2},
+    "sensor": {"$ref": "#/$defs/sensor"},
+    "processing": {"$ref": "#/$defs/processing"},
+    "episodes": {"$ref": "#/$defs/episodes"},
+    "journal": {"$ref": "#/$defs/journal"},
+    "http": {"$ref": "#/$defs/http"},
+    "notifications": {"$ref": "#/$defs/notifications"},
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/rule"}
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    },
+    "sensor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "topology", "capture_points"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "topology": {"enum": ["gateway", "mirror", "host"]},
+        "capture_points": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/capture_point"}
+        }
+      }
+    },
+    "capture_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "interface"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "interface": {"type": "string", "minLength": 1, "maxLength": 64},
+        "direction": {"enum": ["inbound", "outbound", "both"]},
+        "promiscuous": {"type": "boolean"}
+      }
+    },
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observation_queue_capacity": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 1000000
+        },
+        "queue_recovery_cooldown_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 300
+        },
+        "graceful_drain_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 60
+        }
+      }
+    },
+    "episodes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {"type": "integer", "minimum": 100, "maximum": 1000000},
+        "idle_seconds": {"type": "number", "minimum": 1, "maximum": 3600},
+        "progress_seconds": {"type": "number", "minimum": 1, "maximum": 3600},
+        "replay_lateness_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
+        }
+      }
+    },
+    "journal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "max_bytes": {"type": "integer", "minimum": 1024},
+        "backup_count": {"type": "integer", "minimum": 1},
+        "fsync_interval_seconds": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 60
+        },
+        "emergency_max_events": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "emergency_max_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1073741824
+        }
+      }
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "bind": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "probe": {"$ref": "#/$defs/listener"},
+        "operations": {"$ref": "#/$defs/operations_listener"}
+      }
+    },
+    "operations_listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "bind": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "allow_non_loopback": {"type": "boolean"}
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "webhook_url_env": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "timeout_seconds": {"type": "number", "minimum": 0.1, "maximum": 60},
+        "minimum_severity": {
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 20},
+        "max_elapsed_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "shutdown_drain_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "insecure_allow_http_loopback": {"type": "boolean"}
+      }
+    },
+    "cidrs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 64}
+    },
+    "ports": {
+      "oneOf": [
+        {"const": "any"},
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      ]
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_cidrs", "destination_cidrs", "protocol"],
+      "properties": {
+        "source_cidrs": {"$ref": "#/$defs/cidrs"},
+        "destination_cidrs": {"$ref": "#/$defs/cidrs"},
+        "protocol": {"enum": ["any", "tcp", "udp", "icmp"]},
+        "destination_ports": {"$ref": "#/$defs/ports"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"protocol": {"enum": ["tcp", "udp"]}},
+            "required": ["protocol"]
+          },
+          "then": {"required": ["destination_ports"]},
+          "else": {"not": {"required": ["destination_ports"]}}
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "enabled",
+        "match",
+        "severity",
+        "enforcement"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "enabled": {"type": "boolean"},
+        "match": {"$ref": "#/$defs/match"},
+        "severity": {
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "enforcement": {
+          "enum": ["none", "nftables_drop_candidate"]
+        }
+      }
+    }
+  }
+}

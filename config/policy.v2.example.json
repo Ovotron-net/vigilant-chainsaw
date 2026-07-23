@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "sensor": {
+    "id": "edge-gw-01",
+    "topology": "gateway",
+    "capture_points": [
+      {
+        "name": "wan",
+        "interface": "eth0",
+        "direction": "inbound",
+        "promiscuous": false
+      }
+    ]
+  },
+  "processing": {
+    "observation_queue_capacity": 10000,
+    "queue_recovery_cooldown_seconds": 30.0,
+    "graceful_drain_seconds": 10.0
+  },
+  "episodes": {
+    "capacity": 10000,
+    "idle_seconds": 30,
+    "progress_seconds": 60,
+    "replay_lateness_seconds": 2.0
+  },
+  "rules": [
+    {
+      "id": "DEV-DB",
+      "description": "development must not reach production database",
+      "enabled": true,
+      "match": {
+        "source_cidrs": ["10.20.0.0/16"],
+        "destination_cidrs": ["10.50.10.8/32"],
+        "protocol": "tcp",
+        "destination_ports": [5432]
+      },
+      "severity": "critical",
+      "enforcement": "nftables_drop_candidate"
+    }
+  ]
+}
