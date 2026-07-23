@@ -20,7 +20,7 @@ from .config import (
     load_v2_config,
     validate_v2_config,
 )
-from .enforcement import render_nftables
+from .enforcement import render_nftables, render_nftables_v2
 from .engine import PolicyEngine
 from .migration import MigrationRequest, migrate_v1_policy
 from .models import FieldPresence, Observation, PacketMetadata
@@ -398,8 +398,13 @@ def main(argv: list[str] | None = None) -> int:
             return _replay(args)
 
         if args.command == "render-nftables":
-            config = load_config(args.config)
-            rendered = render_nftables(config)
+            version = detect_config_version(args.config)
+            if version == 2:
+                rendered = render_nftables_v2(load_v2_config(args.config))
+            elif version == 1:
+                rendered = render_nftables(load_config(args.config))
+            else:
+                raise ConfigError(f"unsupported config version for render-nftables: {version}")
             if args.output:
                 output = Path(args.output)
                 output.parent.mkdir(parents=True, exist_ok=True)

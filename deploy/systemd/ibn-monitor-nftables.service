@@ -1,0 +1,16 @@
+# Privileged oneshot: applies a pre-rendered artifact. Not the sensor process.
+[Unit]
+Description=Apply ibn-monitor nftables artifact
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/ibn-apply-nftables /etc/ibn-monitor/policy.v2.json
+# CAP_NET_ADMIN only here, never on the sensor unit.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ibn-monitor
+PrivateTmp=true

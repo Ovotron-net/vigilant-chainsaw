@@ -1,31 +1,54 @@
 [Unit]
-Description=Intent-Based Continuous Network Traffic Monitor
+Description=Intent-Based Continuous Network Traffic Monitor (v2)
 Documentation=file:///opt/ibn-monitor/README.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/ibn-monitor/.venv/bin/ibn-monitor run --config /etc/ibn-monitor/policy.json
+User=ibn-monitor
+Group=ibn-monitor
+ExecStart=/opt/ibn-monitor/.venv/bin/ibn-monitor run --config /etc/ibn-monitor/policy.v2.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
-User=root
-Group=root
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+
+# Live capture only needs CAP_NET_RAW. Never CAP_NET_ADMIN — nft apply is separate.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true
+
+# Filesystem hardening
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/log/ibn-monitor
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+# Allowlist is intentionally conservative; extend only with justification.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+ReadOnlyPaths=/etc/ibn-monitor /opt/ibn-monitor
+ReadWritePaths=/var/log/ibn-monitor /var/lib/ibn-monitor
+
+# Resource bounds (tune for the 2-vCPU/512MB reference host)
+LimitNOFILE=65536
+MemoryMax=512M
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ibn-monitor
 
 [Install]
 WantedBy=multi-user.target

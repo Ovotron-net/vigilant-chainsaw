@@ -17,7 +17,8 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 | `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
 | `monitor.py` | `LiveMonitor` composition root |
 | `migration.py` / `cli.py` | v1→v2 migrate; validate/check/replay/run/render-nftables |
-| `enforcement.py` / `engine.py` / `events.py` / `health.py` | V1 render path + legacy helpers |
+| `enforcement.py` | V1 `render_nftables` + v2 topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
+| `engine.py` / `events.py` / `health.py` | V1 check/render helpers + legacy metrics |
 
 **Live data flow (v2):** AF_PACKET → decode → Observation queue → PipelineWorker → evaluate_policy → EpisodeTracker → EvidenceSequencer → JournalWriter → WebhookV2Notifier → ops snapshot / probe.
 
@@ -36,8 +37,9 @@ ibn-monitor migrate-policy --config config/policy.json --output build/policy.v2.
   --sensor-id edge-gw-01 --topology gateway --capture-point wan=eth0
 # Live (Linux only):
 ibn-monitor run --config config/policy.v2.example.json
-# V1 render still supported:
-ibn-monitor render-nftables --config config/policy.json --output build/ibn-monitor.nft
+# Topology-aware v2 nftables (unprivileged render; privileged apply separate):
+make nftables-v2
+# sudo ./scripts/apply-nftables.sh config/policy.v2.example.json
 ```
 
 ## Key Conventions

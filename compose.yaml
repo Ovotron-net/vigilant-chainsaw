@@ -2,12 +2,20 @@ services:
   monitor:
     build: .
     network_mode: host
+    # Live capture: CAP_NET_RAW only. Do not add NET_ADMIN to the sensor.
     cap_add:
       - NET_RAW
-      - NET_ADMIN
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
     environment:
       IBN_WEBHOOK_URL: ${IBN_WEBHOOK_URL:-}
     volumes:
-      - ./config/policy.json:/app/config/policy.json:ro
+      - ./config/policy.v2.example.json:/app/config/policy.v2.example.json:ro
       - ./data/logs:/var/log/ibn-monitor
+      - ./data/lib:/var/lib/ibn-monitor
