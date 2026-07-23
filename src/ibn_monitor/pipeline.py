@@ -18,9 +18,10 @@ from .models import (
     Observation,
     OperationalSnapshot,
 )
-from .notifications_v2 import NullV2Notifier, V2Notifier
+from .notifications_v2 import NullV2Notifier, V2Notifier, WebhookV2Notifier
 from .ops_state import OperationalStateMachine
 from .policy import CompiledPolicy, compile_policy, evaluate_policy
+from .read_model import ReadModel
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,9 @@ class PipelineWorker:
         self._ops.set_policy(config.policy_revision, config.config_revision)
         self._snapshot = self._ops.snapshot()
         self._snapshot_lock = threading.Lock()
+        self._read_model = ReadModel()
+        self._read_model.set_rules(config.rules)
+        self._read_model.set_ops(self._snapshot)
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._force = False
@@ -269,11 +273,27 @@ class PipelineWorker:
         with self._snapshot_lock:
             return self._snapshot
 
+    def operations_state(self) -> dict[str, object]:
+        return self._read_model.view(active_episodes=self._tracker.snapshot())
+
+    def metrics_text(self) -> str:
+        return self._read_model.metrics_text()
+
     def _publish(self) -> None:
         self._ops.set_queue_depth(self._observations.qsize())
         snap = self._ops.snapshot()
         with self._snapshot_lock:
             self._snapshot = snap
+        self._read_model.set_ops(snap)
+        healthy = getattr(self._evidence, "healthy", True)
+        self._read_model.set_journal_healthy(bool(healthy))
+        if isinstance(self._notifier, WebhookV2Notifier):
+            self._read_model.set_notifier_stats(
+                sent=self._notifier.sent,
+                failed=self._notifier.failed,
+                dropped=self._notifier.dropped,
+                suppressed=self._notifier.suppressed,
+            )
 
     def _timer_loop(self) -> None:
         while not self._stop.is_set():
@@ -320,6 +340,9 @@ class PipelineWorker:
             if observation.monotonic_at is not None
             else self._clock.monotonic()
         )
+        from .policy import evaluate_policy as _eval
+
+        matches = _eval(self._policy, observation)
         transitions = process_observation(
             observation,
             lifecycle_time=lifecycle,
@@ -327,10 +350,17 @@ class PipelineWorker:
             tracker=self._tracker,
             policy_revision=self._config.policy_revision,
         )
+        self._read_model.note_observation(
+            observation.outcome or "undecodable",
+            matched=bool(matches),
+            rule_matches=len(matches),
+        )
         now = datetime.now(UTC)
         for transition in transitions:
+            self._read_model.note_phase(transition.phase)
             envelope = self._sequencer.wrap_episode(transition, emitted_at=now)
             self._evidence.commit(envelope)
+            self._read_model.note_envelope(envelope)
             self._notifier.notify(envelope)
         self._publish()
 
@@ -338,10 +368,12 @@ class PipelineWorker:
         if message.kind == "timer":
             now = message.monotonic_at
             for transition in self._tracker.advance(now):
+                self._read_model.note_phase(transition.phase)
                 envelope = self._sequencer.wrap_episode(
                     transition, emitted_at=datetime.now(UTC)
                 )
                 self._evidence.commit(envelope)
+                self._read_model.note_envelope(envelope)
                 self._notifier.notify(envelope)
             self._maybe_clear_drop_reasons(now)
             self._publish()
@@ -476,13 +508,16 @@ class PipelineWorker:
         old_rev = self._config.policy_revision
         now = self._clock.monotonic()
         for transition in self._tracker.close_all("policy_reload", lifecycle_time=now):
+            self._read_model.note_phase(transition.phase)
             envelope = self._sequencer.wrap_episode(
                 transition, emitted_at=datetime.now(UTC)
             )
             self._evidence.commit(envelope)
+            self._read_model.note_envelope(envelope)
             self._notifier.notify(envelope)
         self._config = new_config
         self._policy = compile_policy(new_config.rules, new_config.policy_revision)
+        self._read_model.set_rules(new_config.rules)
         self._ops.set_policy(new_config.policy_revision, new_config.config_revision)
         self._commit_system(
             "policy_reload_success",
@@ -506,10 +541,12 @@ class PipelineWorker:
             self._handle_observation(obs)
         now = self._clock.monotonic()
         for transition in self._tracker.close_all("shutdown", lifecycle_time=now):
+            self._read_model.note_phase(transition.phase)
             envelope = self._sequencer.wrap_episode(
                 transition, emitted_at=datetime.now(UTC)
             )
             self._evidence.commit(envelope)
+            self._read_model.note_envelope(envelope)
             self._notifier.notify(envelope)
         self._evidence.flush()
         self._notifier.stop(
@@ -534,4 +571,5 @@ class PipelineWorker:
             else self._config.policy_revision,
         )
         self._evidence.commit(envelope)
+        self._read_model.note_envelope(envelope)
         self._notifier.notify(envelope)

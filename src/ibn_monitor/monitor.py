@@ -10,6 +10,7 @@ from .config import PolicyV2Config
 from .evidence_stub import EvidenceWriter, FileEvidenceWriter
 from .models import ControlMessage
 from .notifications_v2 import build_v2_notifier
+from .operations import OperationsServer
 from .pipeline import PipelineConfig, PipelineWorker
 from .probe import ProbeServer
 
@@ -28,6 +29,7 @@ class LiveMonitor:
         evidence: EvidenceWriter | None = None,
         boot_id: str | None = None,
         probe_enabled: bool | None = None,
+        operations_enabled: bool | None = None,
     ) -> None:
         self._config = config
         self._config_path = config_path
@@ -72,6 +74,21 @@ class LiveMonitor:
                 allow_non_loopback=config.http.probe.allow_non_loopback,
             ),
             self._worker.snapshot,
+            metrics_provider=self._worker.metrics_text,
+        )
+        ops = config.http.operations
+        ops_enabled = ops.enabled if operations_enabled is None else operations_enabled
+        # When tests disable probe, default operations off too unless overridden.
+        if probe_enabled is False and operations_enabled is None:
+            ops_enabled = False
+        self._operations = OperationsServer(
+            type(ops)(
+                enabled=ops_enabled,
+                bind=ops.bind,
+                port=ops.port,
+                allow_non_loopback=ops.allow_non_loopback,
+            ),
+            self._worker.operations_state,
         )
 
     @property
@@ -88,6 +105,7 @@ class LiveMonitor:
         for source in self._sources:
             source.start(self._worker.observation_sink, self._worker.control_sink)
         self._probe.start()
+        self._operations.start()
         logger.info(
             "LiveMonitor started boot_id=%s sensor_id=%s",
             self._boot_id,
@@ -98,6 +116,7 @@ class LiveMonitor:
         for source in self._sources:
             source.stop()
         self._worker.stop(force=force)
+        self._operations.stop()
         self._probe.stop()
         self._notifier.stop(
             drain_seconds=self._config.notifications.shutdown_drain_seconds
@@ -121,3 +140,6 @@ class LiveMonitor:
 
     def snapshot(self):
         return self._worker.snapshot()
+
+    def operations_state(self) -> dict[str, object]:
+        return self._worker.operations_state()

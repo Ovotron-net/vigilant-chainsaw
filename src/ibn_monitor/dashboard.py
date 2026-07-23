@@ -123,38 +123,48 @@ footer { font-size: 0.75rem; color: var(--color-muted-foreground); }
     <h2 id="rules-heading">Policy rules</h2>
     <div class="table-wrap">
     <table>
-      <caption>Loaded policy rules with protocol, ports, severity, and action</caption>
-      <thead><tr><th scope="col">ID</th><th scope="col">Description</th><th scope="col">Protocol</th><th scope="col">Ports</th><th scope="col">Severity</th><th scope="col">Action</th></tr></thead>
+      <caption>Loaded v2 policy rules</caption>
+      <thead><tr><th scope="col">ID</th><th scope="col">Description</th><th scope="col">Protocol</th><th scope="col">Ports</th><th scope="col">Severity</th><th scope="col">Enforcement</th></tr></thead>
       <tbody id="rules"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
     </table>
     </div>
   </section>
 
-  <section aria-labelledby="events-heading">
-    <h2 id="events-heading">Recent violations</h2>
+  <section aria-labelledby="episodes-heading">
+    <h2 id="episodes-heading">Active episodes</h2>
     <div class="table-wrap">
     <table>
-      <caption>Most recent policy violations, newest first</caption>
-      <thead><tr><th scope="col">Observed</th><th scope="col">Rule</th><th scope="col">Severity</th><th scope="col">Source</th><th scope="col">Destination</th><th scope="col">Proto</th><th scope="col">Port</th></tr></thead>
-      <tbody id="events"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+      <caption>Active violation episodes (snapshot)</caption>
+      <thead><tr><th scope="col">Episode</th><th scope="col">Rule</th><th scope="col">Flow</th><th scope="col">Count</th><th scope="col">Last seen</th></tr></thead>
+      <tbody id="episodes"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
     </table>
     </div>
   </section>
 
-  <footer>Auto-refreshes every 3 seconds from <code>/api/state</code>.</footer>
+  <section aria-labelledby="events-heading">
+    <h2 id="events-heading">Recent evidence</h2>
+    <div class="table-wrap">
+    <table>
+      <caption>Most recent evidence envelopes</caption>
+      <thead><tr><th scope="col">Emitted</th><th scope="col">Type</th><th scope="col">Detail</th><th scope="col">Severity</th></tr></thead>
+      <tbody id="events"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+    </table>
+    </div>
+  </section>
+
+  <footer>Auto-refreshes every 3 seconds from <code>/api/state</code> (operations listener).</footer>
 </main>
 <script>
 const COUNTERS = [
-  ["packets_seen", "Packets seen"],
-  ["packets_decoded", "Packets decoded"],
-  ["violations", "Violations"],
-  ["notifications_sent", "Webhooks sent"],
-  ["notification_failures", "Webhook failures"],
-  ["notifications_suppressed", "Suppressed"],
+  ["observations", "Observations"],
+  ["matched_observations", "Matched"],
+  ["rule_matches", "Rule matches"],
+  ["episodes_started", "Episodes started"],
+  ["episodes_closed", "Episodes closed"],
 ];
 
 function esc(value) {
-  return String(value).replace(/[&<>"']/g, (c) => ({
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[c]);
 }
@@ -163,39 +173,80 @@ function badge(kind, text) {
   return `<span class="badge badge--${esc(kind)}">${esc(text)}</span>`;
 }
 
+function portsLabel(ports) {
+  if (ports === "any" || ports == null) return "any";
+  if (Array.isArray(ports)) return ports.join(", ") || "any";
+  return String(ports);
+}
+
 function render(state) {
+  const op = state.operational || {};
+  const totals = state.totals || {};
   const ready = document.getElementById("ready");
-  ready.textContent = state.metrics.ready ? "ready" : "not ready";
-  ready.className = "status " + (state.metrics.ready ? "status--ok" : "status--down");
+  const isReady = !!op.ready;
+  ready.textContent = op.state || (isReady ? "ready" : "not ready");
+  ready.className = "status " + (isReady ? "status--ok" : (op.state === "degraded" ? "status--stale" : "status--down"));
 
   const fmt = new Intl.NumberFormat();
-  document.getElementById("metrics").innerHTML = COUNTERS.map(([key, label]) =>
+  const cards = COUNTERS.map(([key, label]) =>
     `<div class="card"><div class="label">${esc(label)}</div>` +
-    `<div class="value">${esc(fmt.format(state.metrics[key]))}</div></div>`
-  ).join("");
+    `<div class="value">${esc(fmt.format(totals[key] || 0))}</div></div>`
+  );
+  cards.push(
+    `<div class="card"><div class="label">Queue</div>` +
+    `<div class="value">${esc(op.queue_depth ?? 0)}/${esc(op.queue_capacity ?? 0)}</div></div>`
+  );
+  cards.push(
+    `<div class="card"><div class="label">App drops</div>` +
+    `<div class="value">${esc(fmt.format(op.app_queue_drops_total || 0))}</div></div>`
+  );
+  document.getElementById("metrics").innerHTML = cards.join("");
 
-  const rules = state.rules.map((r) => `<tr>
-    <td><code>${esc(r.id)}</code></td>
-    <td>${esc(r.description)}</td>
-    <td>${esc(r.protocol)}</td>
-    <td>${esc(r.destination_ports.join(", ") || "any")}</td>
-    <td>${badge(r.severity, r.severity)}</td>
-    <td>${r.enabled ? badge(r.action, r.action) : badge("disabled", "disabled")}</td>
-  </tr>`);
+  const rules = (state.rules || []).map((r) => {
+    const match = r.match || {};
+    const ports = portsLabel(match.destination_ports);
+    const enf = r.enforcement === "nftables_drop_candidate" ? "drop" : "none";
+    return `<tr>
+      <td><code>${esc(r.id)}</code></td>
+      <td>${esc(r.description)}</td>
+      <td>${esc(match.protocol || "—")}</td>
+      <td>${esc(ports)}</td>
+      <td>${badge(r.severity, r.severity)}</td>
+      <td>${r.enabled ? badge(enf, enf) : badge("disabled", "disabled")}</td>
+    </tr>`;
+  });
   document.getElementById("rules").innerHTML =
     rules.join("") || '<tr><td colspan="6" class="empty">No rules loaded.</td></tr>';
 
-  const events = state.recent_events.slice().reverse().map((e) => `<tr>
-    <td>${esc(e.observed_at)}</td>
-    <td><code>${esc(e.rule.id)}</code></td>
-    <td>${badge(e.rule.severity, e.rule.severity)}</td>
-    <td><code>${esc(e.network.source)}</code></td>
-    <td><code>${esc(e.network.destination)}</code></td>
-    <td>${esc(e.network.protocol)}</td>
-    <td>${esc(e.network.destination_port ?? "—")}</td>
+  const episodes = (state.active_episodes || []).map((e) => `<tr>
+    <td><code>${esc(e.episode_id)}</code></td>
+    <td><code>${esc(e.rule_id)}</code></td>
+    <td><code>${esc(e.source)} → ${esc(e.destination)}</code> ${esc(e.protocol)}/${esc(e.destination_port ?? "—")}</td>
+    <td>${esc(e.observation_count)}</td>
+    <td>${esc(e.last_observed_at)}</td>
   </tr>`);
+  document.getElementById("episodes").innerHTML =
+    episodes.join("") || '<tr><td colspan="5" class="empty">No active episodes.</td></tr>';
+
+  const events = (state.recent_events || []).slice().reverse().map((e) => {
+    const p = e.payload || {};
+    if (e.event_type === "violation_episode") {
+      return `<tr>
+        <td>${esc(e.emitted_at)}</td>
+        <td>${badge(p.phase || "episode", p.phase || "episode")}</td>
+        <td><code>${esc(p.rule?.id)}</code> ${esc(p.flow?.source)} → ${esc(p.flow?.destination)}</td>
+        <td>${badge(p.rule?.severity || "low", p.rule?.severity || "—")}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td>${esc(e.emitted_at)}</td>
+      <td>${badge("alert", e.event_type || "system")}</td>
+      <td><code>${esc(p.name || "—")}</code></td>
+      <td>—</td>
+    </tr>`;
+  });
   document.getElementById("events").innerHTML =
-    events.join("") || '<tr><td colspan="7" class="empty">No violations observed.</td></tr>';
+    events.join("") || '<tr><td colspan="4" class="empty">No evidence yet.</td></tr>';
 }
 
 async function refresh() {
@@ -204,7 +255,6 @@ async function refresh() {
     const response = await fetch("/api/state");
     if (response.ok) render(await response.json());
   } catch (error) {
-    // Sensor unreachable; surface staleness instead of showing frozen data as live.
     ready.textContent = "connection lost";
     ready.className = "status status--stale";
   }

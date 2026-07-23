@@ -18,6 +18,7 @@ def test_live_monitor_processes_match_and_stops_cleanly():
         evidence=evidence,
         boot_id="boot-mon",
         probe_enabled=False,
+        operations_enabled=False,
     )
     monitor.start()
     try:
@@ -46,6 +47,7 @@ def test_live_monitor_request_reload_is_non_blocking():
         evidence=MemoryEvidenceWriter(),
         boot_id="boot-reload",
         probe_enabled=False,
+        operations_enabled=False,
     )
     monitor.start()
     try:

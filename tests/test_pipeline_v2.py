@@ -48,6 +48,7 @@ def test_live_monitor_with_memory_source():
         evidence=evidence,
         boot_id="boot-test",
         probe_enabled=False,
+        operations_enabled=False,
     )
     monitor.start()
     try:
@@ -83,6 +84,7 @@ def test_shutdown_closes_episodes():
         evidence=evidence,
         boot_id="boot-stop",
         probe_enabled=False,
+        operations_enabled=False,
     )
     monitor.start()
     try:

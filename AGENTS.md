@@ -12,11 +12,12 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 | `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
 | `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |
 | `decode.py` / `pcap.py` / `policy.py` / `episodes.py` / `replay.py` | Pure v2 decode, PCAP, match, episodes, offline replay |
-| `pipeline.py` / `ops_state.py` / `probe.py` | Ordered worker, ops state, minimal `/healthz`/`/readyz` |
+| `pipeline.py` / `ops_state.py` / `read_model.py` | Ordered worker, ops state, atomic operations projection |
+| `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
 | `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
 | `monitor.py` | `LiveMonitor` composition root |
 | `migration.py` / `cli.py` | v1→v2 migrate; validate/check/replay/run/render-nftables |
-| `enforcement.py` / `engine.py` / `events.py` / `health.py` / `dashboard.py` | V1 render path + legacy event helpers / dashboard assets |
+| `enforcement.py` / `engine.py` / `events.py` / `health.py` | V1 render path + legacy helpers |
 
 **Live data flow (v2):** AF_PACKET → decode → Observation queue → PipelineWorker → evaluate_policy → EpisodeTracker → EvidenceSequencer → JournalWriter → WebhookV2Notifier → ops snapshot / probe.
 
