@@ -8,13 +8,14 @@
 
 | Capability | Detail |
 |---|---|
-| **Continuous capture** | IPv4/IPv6 header metadata via Scapy (`AsyncSniffer` or PCAP replay) |
-| **Declarative policy** | Named rules: CIDRs, protocol, ports, severity, `alert` / `drop` |
+| **Continuous capture (v1)** | IPv4/IPv6 header metadata via Scapy (`AsyncSniffer` or PCAP replay) |
+| **Declarative policy** | V1: CIDRs, protocol, ports, severity, `alert` / `drop`. V2: explicit prohibited-flow assertions with enforcement disposition |
 | **No payload capture** | Only IP/transport fields — never application body bytes |
-| **Structured events** | Rotating JSONL log; optional webhook with severity gate + dedup |
-| **Live reload** | `SIGHUP` swaps rules without stopping capture |
+| **Structured events** | V1 rotating JSONL + optional webhook; v2 schema-v2 episode evidence envelopes |
+| **V2 classic PCAP replay** | Header-only streaming, event-time watermark, violation episodes (PCAPNG rejected) |
+| **Live reload** | `SIGHUP` swaps v1 rules without stopping capture |
 | **Observability** | `/healthz`, `/readyz`, Prometheus `/metrics`, `/api/state`, HTML dashboard at `/` |
-| **Enforcement (optional)** | Render `action=drop` rules to `inet ibn_monitor` for gateway `nftables` |
+| **Enforcement (optional)** | Render v1 `action=drop` rules to `inet ibn_monitor` for gateway `nftables` |
 
 ## Quick start
 
@@ -45,14 +46,27 @@ Events go to the path in `logging.file` (example policy: `/var/log/ibn-monitor/e
 ### Without root
 
 ```bash
-# Synthetic policy check (exit 2 = match)
+# Synthetic policy check (v1 exit 2 = match; v2 exit 1 = match, 2 = error)
 ibn-monitor check --config config/policy.json \
   --source 10.20.5.14 --destination 10.50.10.8 \
   --protocol tcp --destination-port 5432
 
-# Offline PCAP replay
+ibn-monitor check --config config/policy.v2.example.json \
+  --source 10.20.5.14 --destination 10.50.10.8 \
+  --protocol tcp --destination-port 5432 --format json
+
+# V1 offline PCAP via Scapy path
 python scripts/generate_test_pcap.py
 ibn-monitor run --config config/policy.json --pcap test-traffic.pcap
+
+# V2 classic-PCAP event-time replay (no Scapy)
+ibn-monitor validate --config config/policy.v2.example.json --strict
+ibn-monitor replay --config config/policy.v2.example.json \
+  --pcap test-traffic.pcap --output build/replay-v2.jsonl --summary-output -
+
+# Migrate unambiguous v1 policy to a v2 candidate (refuses overwrite)
+ibn-monitor migrate-policy --config config/policy.json --output build/policy.v2.json \
+  --sensor-id edge-gw-01 --topology gateway --capture-point wan=eth0
 ```
 
 ## Architecture
@@ -81,20 +95,28 @@ Network interface / PCAP
 policy.json ──▶ render-nftables ──▶ gateway nftables  (separate step)
 ```
 
-Ten modules under `src/ibn_monitor/` — no web framework, no ORM:
+Modules under `src/ibn_monitor/` — no web framework, no ORM:
 
 | Module | Role |
 |---|---|
-| `models.py` | Frozen dataclasses: `PacketMetadata`, `Rule`, `Event` |
-| `config.py` | Schema-first load of `policy.json` → `AppConfig` (`ConfigError` on failure) |
-| `capture.py` | `PacketSource` Protocol, Scapy live/PCAP adapters, metadata extraction |
-| `engine.py` | Pure CIDR/protocol/port matching; thread-safe rule replace |
-| `events.py` | `Metrics`, `EventLog`, `Notifier` (`NullNotifier` / `WebhookNotifier`) |
+| `models.py` | Frozen dataclasses: v1 `PacketMetadata`/`Rule`/`Event`; v2 `Observation`/`PolicyRule`/episodes/evidence |
+| `config.py` | V1 `load_config`; v2 `validate_v2_config` / `load_v2_config` with diagnostics + revisions |
+| `capture.py` | V1 `PacketSource` Protocol, Scapy live/PCAP adapters, metadata extraction |
+| `engine.py` | V1 pure CIDR/protocol/port matching; thread-safe rule replace |
+| `policy.py` | V2 compiled policy, all-match evaluation, overlap diagnostics |
+| `decode.py` | Bounded IPv4/IPv6 header decoder (no Scapy, no payload) |
+| `pcap.py` | Streaming classic-PCAP reader (rejects PCAPNG) |
+| `episodes.py` | Deterministic violation-episode state machine |
+| `migration.py` | Explicit v1 → v2 policy migration |
+| `replay.py` | Event-time v2 PCAP replay + evidence JSONL + summary |
+| `events.py` | V1 `Metrics`/`EventLog`/`Notifier`; v2 `EvidenceSequencer` |
 | `health.py` | HTTP: `/`, `/api/state`, `/healthz`, `/readyz`, `/metrics` |
 | `dashboard.py` | Embedded SPA (OKLCH tokens, polls `/api/state` every 3s) |
-| `enforcement.py` | nftables render for `action=drop` |
+| `enforcement.py` | nftables render for v1 `action=drop` |
 | `monitor.py` | Composition root: engine + log + notifier + health + source |
-| `cli.py` | `validate`, `check`, `render-nftables`, `run` |
+| `cli.py` | `validate`, `check`, `migrate-policy`, `replay`, `render-nftables`, `run` |
+
+**Phase 1 boundary:** live capture and nftables remain on the v1 path. V2 does not import Scapy. AF_PACKET live capture, durable v2 journal, split HTTP, and topology-aware nftables are later phases.
 
 Domain vocabulary lives in [CONTEXT.md](CONTEXT.md). Agent/contributor conventions live in [AGENTS.md](AGENTS.md).
 
@@ -111,7 +133,9 @@ Capabilities: `CAP_NET_RAW` for capture; `CAP_NET_ADMIN` only when applying fire
 
 ## Policy model
 
-`config/policy.json` is validated at startup against the packaged schema `ibn_monitor/policy.schema.json`. Schema owns structure (enums, ranges, ports-only-for-tcp/udp). `config.py` owns semantics (unique rule IDs, CIDR parse, frozen dataclasses).
+**V1** `config/policy.json` is validated against packaged `ibn_monitor/policy.schema.json`. Schema owns structure (enums, ranges, ports-only-for-tcp/udp). `config.py` owns semantics (unique rule IDs, CIDR parse, frozen dataclasses).
+
+**V2** example: `config/policy.v2.example.json`, schema `ibn_monitor/policy-v2.schema.json`. All match selectors are explicit; omitted CIDRs/ports are invalid. Canonical policy/config revisions are content hashes.
 
 ```json
 {
