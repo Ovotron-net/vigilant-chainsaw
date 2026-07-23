@@ -11,12 +11,15 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import deque
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Protocol
 
 from .config import LoggingConfig, NotificationConfig
-from .models import Event, PacketMetadata, Rule
+from .models import EpisodeTransition, Event, EvidenceEnvelope, PacketMetadata, Rule
+
+MAX_EVIDENCE_LINE_BYTES = 262_144
 
 SEVERITY_ORDER = {"low": 10, "medium": 20, "high": 30, "critical": 40}
 
@@ -284,3 +287,46 @@ def build_notifier(config: NotificationConfig, metrics: Metrics) -> Notifier:
     if not config.webhook_url_env:
         return NullNotifier()
     return WebhookNotifier(config, metrics)
+
+
+class EvidenceSequencer:
+    def __init__(self, sensor_id: str, boot_id: str) -> None:
+        self._sensor_id = sensor_id
+        self._boot_id = boot_id
+        self._next_sequence = 1
+
+    def wrap_episode(
+        self,
+        transition: EpisodeTransition,
+        *,
+        emitted_at: datetime,
+    ) -> EvidenceEnvelope:
+        sequence = self._next_sequence
+        self._next_sequence += 1
+        return EvidenceEnvelope(
+            schema_version=2,
+            event_id=f"{self._boot_id}:{sequence}",
+            event_type="violation_episode",
+            sensor_id=self._sensor_id,
+            boot_id=self._boot_id,
+            sequence=sequence,
+            emitted_at=emitted_at,
+            policy_revision=transition.key.policy_revision,
+            payload=transition,
+        )
+
+
+def _serialize_evidence_dict(payload: dict[str, object]) -> str:
+    line = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    if len((line + "\n").encode("utf-8")) > MAX_EVIDENCE_LINE_BYTES:
+        raise ValueError("evidence event exceeds 262144 bytes")
+    return line
+
+
+def serialize_evidence(event: EvidenceEnvelope) -> str:
+    return _serialize_evidence_dict(event.to_dict())
