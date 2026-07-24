@@ -27,18 +27,24 @@ ibn-monitor validate --config /etc/ibn-monitor/policy.v2.json --strict
 
 ## Day-2 operations
 
-### Health
+### Probe and operations HTTP
+
+Two listeners (v2). Full `/api/state` nested contract:
+[ops-state-api.md](ops-state-api.md) · example:
+[fixtures/ops-state.example.json](fixtures/ops-state.example.json).
 
 | Endpoint | Port (default) | Meaning |
 |---|---|---|
-| `GET /healthz` | 9108 | 200 = process alive (incl. degraded); 500 = worker dead |
-| `GET /readyz` | 9108 | 200 only when `state=ready` |
-| `GET /metrics` | 9108 | Prometheus text |
-| `GET /` , `/api/state` | 9109 | Ops dashboard (loopback; tunnel/proxy for remote) |
+| `GET /healthz` | 9108 (probe) | 200 = process alive (incl. degraded); 500 = worker dead |
+| `GET /readyz` | 9108 (probe) | 200 only when `state=ready` |
+| `GET /metrics` | 9108 (probe) | Prometheus text |
+| `GET /` | 9109 (operations) | Embedded ops dashboard (loopback; tunnel/proxy for remote) |
+| `GET /api/state` | 9109 (operations) | Atomic JSON snapshot (`ReadModel.view()`) |
 
 ```bash
 curl -sS http://127.0.0.1:9108/readyz
 curl -sS http://127.0.0.1:9108/metrics | head
+curl -sS http://127.0.0.1:9109/api/state | head -c 200
 ```
 
 ### Policy reload (rules only)
@@ -110,6 +116,12 @@ After unclean stop, next boot journals unclean-boot context via missing `.clean`
 
 ## Security notes
 
-- Do not bind operations HTTP off-loopback without `allow_non_loopback` **and** an authenticated reverse proxy or SSH tunnel.
+- Do not bind **operations** HTTP (`:9109` by default) off-loopback without
+  `http.operations.allow_non_loopback=true` **and** an authenticated reverse
+  proxy or SSH tunnel. The sensor has no auth on either listener.
+- Treat the **probe** listener (`:9108`) the same way if you expose it beyond
+  loopback — it is liveness/metrics only, but still process metadata.
 - Webhook URLs are HTTPS only (or HTTP loopback with explicit insecure flag).
 - Never put secrets in policy JSON; only env var **names**.
+
+See also: [ops-state-api.md](ops-state-api.md) (trust boundary + response shape).

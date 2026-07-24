@@ -14,7 +14,7 @@
 | **Structured events** | V1 rotating JSONL + optional webhook; v2 schema-v2 episode evidence envelopes |
 | **V2 classic PCAP replay** | Header-only streaming, event-time watermark, violation episodes (PCAPNG rejected) |
 | **Live reload** | `SIGHUP` swaps v1 rules without stopping capture |
-| **Observability** | `/healthz`, `/readyz`, Prometheus `/metrics`, `/api/state`, HTML dashboard at `/` |
+| **Observability** | Probe `:9108` (`/healthz`, `/readyz`, `/metrics`); ops `:9109` (`/`, `/api/state`) |
 | **Enforcement (optional)** | Render v1 `action=drop` rules to `inet ibn_monitor` for gateway `nftables` |
 
 ## Quick start
@@ -267,30 +267,53 @@ ibn-monitor run --config config/policy.json
 - Events below `minimum_severity` are not sent; duplicates within `deduplication_seconds` (same rule + flow key) are suppressed. **Every** match is still written to the local log.
 - Never commit webhook URLs.
 
-## Health, metrics, and dashboard
+## Probe and operations HTTP (v2)
 
-Default bind: `127.0.0.1:9108`.
+Live v2 splits HTTP into two loopback listeners. V1 still uses a single
+`health` block; migrate with `ibn-monitor migrate-policy` (see
+[`docs/operator/migration-and-events.md`](docs/operator/migration-and-events.md)).
+
+### Probe (default `127.0.0.1:9108`)
 
 | Path | Purpose |
 |---|---|
-| `/` | Embedded dashboard (metrics, rules, recent violations; 3s refresh) |
-| `/api/state` | JSON: metrics + rules + recent events |
-| `/healthz` | Liveness |
-| `/readyz` | Ready once capture is established (`503` until then) |
+| `/healthz` | Liveness (`200` while the process is up, including degraded) |
+| `/readyz` | Ready only when operational `state=ready` (`503` otherwise) |
 | `/metrics` | Prometheus text format |
 
 ```bash
-curl http://127.0.0.1:9108/healthz
-curl http://127.0.0.1:9108/readyz
-curl http://127.0.0.1:9108/metrics
-curl http://127.0.0.1:9108/api/state
+curl -sS http://127.0.0.1:9108/healthz
+curl -sS http://127.0.0.1:9108/readyz
+curl -sS http://127.0.0.1:9108/metrics
+```
+
+### Operations (default `127.0.0.1:9109`)
+
+| Path | Purpose |
+|---|---|
+| `/` | Embedded dashboard (rules, episodes, recent evidence; 3s refresh) |
+| `/api/state` | Atomic JSON snapshot from `ReadModel.view()` |
+
+```bash
+curl -sS http://127.0.0.1:9109/
+curl -sS http://127.0.0.1:9109/api/state
 ```
 
 > PowerShell: use `curl.exe` so you get the real curl binary (`curl` is an alias for `Invoke-WebRequest`).
 
-Do not expose the health listener on untrusted networks without access control.
+Non-loopback **operations** bind requires `http.operations.allow_non_loopback=true`
+and an authenticated reverse proxy or SSH tunnel. Do not expose probe or
+operations listeners on untrusted networks without access control.
+
+Snapshot contract (nested fields, truncation, example JSON):
+[`docs/operator/ops-state-api.md`](docs/operator/ops-state-api.md).
+Day-2 operator flow: [`docs/operator/runbook.md`](docs/operator/runbook.md).
 
 ## Event format
+
+V1 wire shape below (legacy check/log path). Live and classic-PCAP **v2** emit
+schema-v2 evidence envelopes — see
+[`docs/operator/migration-and-events.md`](docs/operator/migration-and-events.md).
 
 One JSON object per line:
 
