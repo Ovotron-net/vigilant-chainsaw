@@ -23,6 +23,6 @@ terms exactly in code, tests, and docs.
 | **Replay watermark** | Maximum seen capture time minus allowed lateness; orders event-time processing for classic PCAP replay. |
 | **Diagnostic** | Structured validation warning/error with stable code, path, and message. |
 | **Field presence** | Bit flags describing which Observation fields are known (`FieldPresence`). Partial observations never treat unknown constrained fields as wildcards. |
-| **ObservationSource** | Live capture seam (`capture.ObservationSource`). Production: `AfPacketSource`. Tests: `MemoryObservationSource`. |
+| **ObservationSource** | Live capture seam (`capture.ObservationSource`). Production: Windows `WindowsRawSource` (SIO_RCVALL) or Linux `AfPacketSource` via `capture_live.build_live_sources`. Tests: `MemoryObservationSource`. |
 | **Evidence journal** | Durable append-only JSONL with rotation, fsync, emergency buffer (`journal.JournalWriter`). |
 | **V2 notifier** | Webhook delivery of eligible evidence envelopes (`notifications_v2`). |

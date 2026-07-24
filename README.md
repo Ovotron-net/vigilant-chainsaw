@@ -8,7 +8,7 @@
 
 | Capability | Detail |
 |---|---|
-| **Continuous capture (v1)** | IPv4/IPv6 header metadata via Scapy (`AsyncSniffer` or PCAP replay) |
+| **Continuous capture** | Windows: raw IPv4 (`SIO_RCVALL`). Linux: AF_PACKET. Offline: classic PCAP replay |
 | **Declarative policy** | V1: CIDRs, protocol, ports, severity, `alert` / `drop`. V2: explicit prohibited-flow assertions with enforcement disposition |
 | **No payload capture** | Only IP/transport fields — never application body bytes |
 | **Structured events** | V1 rotating JSONL + optional webhook; v2 schema-v2 episode evidence envelopes |
@@ -30,18 +30,34 @@ pip install -e ".[dev]"
 ibn-monitor validate --config config/policy.json
 ```
 
-### Live capture (Linux)
+### Live capture (Windows — primary)
 
-Requires `libpcap` and `CAP_NET_RAW` (or root):
+Run an elevated PowerShell (Administrator). Raw sockets use `SIO_RCVALL`
+(no Scapy/Npcap dependency). Default policy:
+`config/policy.v2.windows.json` (`interface: "auto"`).
 
-```bash
-sudo apt-get install -y libpcap0.8 nftables
-ip -brief link   # set sensor.interface in config/policy.json
-
-sudo .venv/bin/ibn-monitor run --config config/policy.json
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+New-Item -ItemType Directory -Force -Path data\logs | Out-Null
+# Elevated:
+ibn-monitor run
+# or: ibn-monitor run --config config/policy.v2.windows.json --interface 192.168.1.10
 ```
 
-Events go to the path in `logging.file` (example policy: `/var/log/ibn-monitor/events.jsonl`).
+Probe/ops on loopback: `http://127.0.0.1:9108/healthz`, `http://127.0.0.1:9109/`.
+
+### Live capture (Linux)
+
+Requires `CAP_NET_RAW` (or root) and AF_PACKET:
+
+```bash
+sudo apt-get install -y nftables
+ip -brief link   # set capture_points[].interface in v2 policy
+
+sudo .venv/bin/ibn-monitor run --config config/policy.v2.example.json
+```
 
 ### Without root
 
@@ -244,7 +260,7 @@ ibn-monitor render-nftables --config config/policy.json --output build/ibn-monit
 | `make validate` | policy validate |
 | `make check` | sample flow check |
 | `make pcap` | generate + replay test PCAP |
-| `make docker` | compose up --build -d |
+| `make docker` | `docker compose up --build -d` (see `docs/operator/docker.md`) |
 | `make nftables` | render + `nft --check` |
 
 ## Webhook notifications
@@ -343,17 +359,31 @@ One JSON object per line:
 }
 ```
 
-## Docker
+## Docker (Windows Docker Desktop only)
 
-Live capture needs host networking and Linux capabilities:
+Compose targets **Windows + Docker Desktop** (Linux containers, bridge network,
+published ports). Live AF_PACKET capture is **not** available here — use
+systemd on a real Linux host for production sensing. Operator guide:
+[`docs/operator/docker.md`](docs/operator/docker.md).
 
-```bash
-mkdir -p data/logs
+```powershell
+Copy-Item .env.example .env -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path data\logs, data\lib | Out-Null
 docker compose up --build -d
-docker compose logs -f
+docker compose logs -f monitor
+
+curl.exe -sS http://127.0.0.1:9108/healthz
+curl.exe -sS http://127.0.0.1:9109/api/state
 ```
 
-Compose mounts `config/policy.json` read-only and writes logs to `./data/logs`. `IBN_WEBHOOK_URL` from the host environment is forwarded when set.
+| Piece | Detail |
+|---|---|
+| Ports | `9108` probe, `9109` ops/dashboard (published to Windows host) |
+| Policy | `config/policy.v2.docker.json` binds `0.0.0.0` for Desktop port maps |
+| Journal | `.\data\logs` → `/var/log/ibn-monitor` |
+| Live capture | Degraded on Desktop (`/readyz` 503 expected) |
+| Offline | `docker compose --profile tools run --rm validate` |
+| Replay | `docker compose --profile replay run --rm replay` |
 
 ## systemd (Linux)
 

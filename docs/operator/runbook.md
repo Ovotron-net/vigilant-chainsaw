@@ -12,6 +12,8 @@ The sensor **never** applies firewall rules.
 
 ## Install (Linux)
 
+### systemd
+
 ```bash
 sudo ./scripts/install-systemd.sh
 # Policy: /etc/ibn-monitor/policy.v2.json
@@ -19,10 +21,22 @@ sudo ./scripts/install-systemd.sh
 # State:  /var/lib/ibn-monitor/
 ```
 
+### Docker (Windows Desktop)
+
+Bridge network + published `9108`/`9109` only — **no** live capture on Desktop.
+See [docker.md](docker.md). Production live sensing: systemd on Linux (above).
+
+```powershell
+New-Item -ItemType Directory -Force -Path data\logs, data\lib | Out-Null
+docker compose up --build -d
+curl.exe -sS http://127.0.0.1:9108/healthz
+```
+
 Validate before start:
 
 ```bash
 ibn-monitor validate --config /etc/ibn-monitor/policy.v2.json --strict
+# or: docker compose --profile tools run --rm validate
 ```
 
 ## Day-2 operations

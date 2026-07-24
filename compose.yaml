@@ -1,21 +1,137 @@
+# ibn-monitor Docker Compose — Windows Docker Desktop only
+#
+# Uses Linux containers on Desktop (WSL2/Hyper-V backend), bridge networking,
+# and published ports so probe/ops are reachable from the Windows host.
+#
+# Live AF_PACKET capture is not available on Docker Desktop (no host NICs /
+# CAP_NET_RAW path). The monitor process still serves HTTP in degraded mode
+# (readyz 503). Use validate / replay for offline work.
+#
+# PowerShell:
+#   mkdir data\logs, data\lib -Force
+#   docker compose up --build -d
+#   curl.exe -sS http://127.0.0.1:9108/healthz
+#   curl.exe -sS http://127.0.0.1:9109/api/state
+#   docker compose --profile tools run --rm validate
+#   docker compose --profile replay run --rm replay
+
+name: ibn-monitor
+
 services:
   monitor:
-    build: .
-    network_mode: host
-    # Live capture: CAP_NET_RAW only. Do not add NET_ADMIN to the sensor.
-    cap_add:
-      - NET_RAW
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ibn-monitor:local
+    container_name: ibn-monitor
+    platform: linux/amd64
+    # Bridge + published ports (host network is broken on Docker Desktop / Windows).
+    ports:
+      - "9108:9108" # probe: /healthz /readyz /metrics
+      - "9109:9109" # ops: / /api/state
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:size=64m,mode=1777
     restart: unless-stopped
     environment:
+      IBN_CONFIG: /etc/ibn-monitor/policy.v2.json
       IBN_WEBHOOK_URL: ${IBN_WEBHOOK_URL:-}
     volumes:
-      - ./config/policy.v2.example.json:/app/config/policy.v2.example.json:ro
-      - ./data/logs:/var/log/ibn-monitor
-      - ./data/lib:/var/lib/ibn-monitor
+      - type: bind
+        source: ${IBN_POLICY:-./config/policy.v2.docker.json}
+        target: /etc/ibn-monitor/policy.v2.json
+        read_only: true
+      - type: bind
+        source: ./data/logs
+        target: /var/log/ibn-monitor
+      - type: bind
+        source: ./data/lib
+        target: /var/lib/ibn-monitor
+    mem_limit: 512m
+    cpus: 2.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9108/healthz', timeout=2)",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    # Live run will log capture_point_unavailable on Desktop; HTTP still works.
+    command: ["run"]
+
+  replay:
+    profiles: ["replay"]
+    image: ibn-monitor:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    user: "950:950"
+    environment:
+      IBN_CONFIG: /etc/ibn-monitor/policy.v2.json
+    volumes:
+      - type: bind
+        source: ${IBN_POLICY:-./config/policy.v2.docker.json}
+        target: /etc/ibn-monitor/policy.v2.json
+        read_only: true
+      - type: bind
+        source: ${IBN_PCAP:-./test-traffic.pcap}
+        target: /pcap/input.pcap
+        read_only: true
+      - type: bind
+        source: ./data/logs
+        target: /var/log/ibn-monitor
+    command:
+      - replay
+      - --config
+      - /etc/ibn-monitor/policy.v2.json
+      - --pcap
+      - /pcap/input.pcap
+      - --output
+      - /var/log/ibn-monitor/replay-v2.jsonl
+      - --summary-output
+      - "-"
+
+  validate:
+    profiles: ["tools"]
+    image: ibn-monitor:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    user: "950:950"
+    volumes:
+      - type: bind
+        source: ${IBN_POLICY:-./config/policy.v2.docker.json}
+        target: /etc/ibn-monitor/policy.v2.json
+        read_only: true
+    command:
+      - validate
+      - --config
+      - /etc/ibn-monitor/policy.v2.json
+      - --strict
+      - --format
+      - json

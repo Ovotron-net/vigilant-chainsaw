@@ -1,6 +1,9 @@
 """V2 capture seam: ObservationSource protocol and in-memory test adapter.
 
-Live AF_PACKET implementation lives in ``capture_afpacket.py`` (Linux only).
+Live adapters (platform factory in ``capture_live``):
+- Windows: ``capture_windows`` (raw IPv4 / SIO_RCVALL)
+- Linux: ``capture_afpacket`` (AF_PACKET)
+
 Classic-PCAP offline analysis uses ``replay`` / ``pcap.py`` — not this module.
 """
 
