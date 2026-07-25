@@ -2,6 +2,11 @@
 
 **Intent-Based Continuous Traffic Monitor** — a Linux network sensor that evaluates live or offline IP traffic against declarative JSON policies, logs violations as JSONL, optionally notifies via webhook, exposes health/metrics and a small dashboard, and can render `action=drop` rules into an `nftables` forwarding table.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/Ovotron-net/vigilant-chainsaw)](https://github.com/Ovotron-net/vigilant-chainsaw/stargazers)
+[![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neolace)
+
+
 > Use this software only on networks and systems you own or are explicitly authorized to monitor.
 
 ## Features
