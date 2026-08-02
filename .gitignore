@@ -9,6 +9,7 @@ htmlcov/
 build/
 dist/
 data/logs/
+data/lib/
 *.pcap
 *.jsonl
 .env

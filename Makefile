@@ -19,8 +19,19 @@ check:
 	ibn-monitor check --config config/policy.v2.example.json \
 	  --source 10.20.5.14 --destination 10.50.10.8 --protocol tcp --destination-port 5432
 
+# Windows Docker Desktop (PowerShell-friendly; mkdir works in Git Bash too)
 docker:
+	mkdir -p data/logs data/lib
 	docker compose up --build -d
+
+docker-validate:
+	docker compose --profile tools run --rm validate
+
+docker-replay:
+	docker compose --profile replay run --rm replay
+
+docker-down:
+	docker compose down
 
 nftables:
 	ibn-monitor render-nftables --config config/policy.json --output build/ibn-monitor.nft

@@ -29,7 +29,7 @@ ibn-monitor validate --config build/policy.v2.json --strict
 | `sensor.interface` | `sensor.capture_points[]` | Named points + topology |
 | `sensor.bpf_filter` | **removed** | Owned cBPF only; non-default BPF refused |
 | `logging.*` | `journal.*` | Same keys where present |
-| `health.*` | `http.probe.*` | Ops listener is separate (9109) |
+| `health.*` | `http.probe.*` | Ops listener is separate (`http.operations`, default 9109); see [ops-state-api.md](ops-state-api.md) |
 | `notifications.deduplication_seconds` | **removed** | Episode aggregation replaces per-packet dedup |
 | `notifications.webhook_url_env` | same | Still env **name**, not URL |
 

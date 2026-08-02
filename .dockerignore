@@ -1,10 +1,47 @@
+# VCS / IDE
 .git
 .github
+.idea
+.vscode
+.worktrees
+.agents
+.codex
+.superpowers
+
+# Python junk
 .venv
 __pycache__
+*.py[cod]
+*.egg-info
 .pytest_cache
 .ruff_cache
-tests
+.coverage
+htmlcov
+.mypy_cache
+
+# Build artifacts
+build
+dist
+*.egg
+
+# Local runtime / secrets
 data
+.env
 *.pcap
 *.jsonl
+
+# Docs and tests are not needed in the runtime image
+docs
+tests
+scripts
+deploy
+
+# Misc
+*.md
+!README.md
+!LICENSE
+Makefile
+requirements*.txt
+compose.yaml
+.dockerignore
+.env.example

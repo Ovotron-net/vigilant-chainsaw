@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import platform
 import signal
 import sys
@@ -36,9 +37,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run live AF_PACKET capture (Linux, policy v2)")
-    run_parser.add_argument("--config", default="config/policy.v2.example.json")
-    run_parser.add_argument("--interface", help="Override single capture-point interface")
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run live capture (Windows raw IP / Linux AF_PACKET; policy v2)",
+    )
+    _default_run_config = os.environ.get("IBN_CONFIG") or (
+        "config/policy.v2.windows.json"
+        if sys.platform == "win32"
+        else "config/policy.v2.example.json"
+    )
+    run_parser.add_argument(
+        "--config",
+        default=_default_run_config,
+        help=(
+            "Policy path (default: $IBN_CONFIG, else "
+            "config/policy.v2.windows.json on Windows / "
+            "config/policy.v2.example.json elsewhere)"
+        ),
+    )
+    run_parser.add_argument(
+        "--interface",
+        default=None,
+        help="Override single capture-point interface (or $IBN_CAPTURE_INTERFACE)",
+    )
     run_parser.add_argument(
         "--pcap",
         help="Removed: use ibn-monitor replay instead",
@@ -334,14 +355,21 @@ def _run(args: argparse.Namespace) -> int:
             f"live run requires policy version 2 (got {version}); "
             "migrate with migrate-policy or use config/policy.v2.example.json"
         )
-    if platform.system().lower() != "linux":
-        raise ConfigError("live run requires Linux AF_PACKET")
+    system = platform.system().lower()
+    if system not in {"windows", "linux"}:
+        raise ConfigError(
+            f"live run requires Windows or Linux (got {platform.system()}); "
+            "use: ibn-monitor replay for offline PCAP"
+        )
 
     config = load_v2_config(args.config)
-    if args.interface:
+    interface = args.interface or os.environ.get("IBN_CAPTURE_INTERFACE") or None
+    if interface:
         if len(config.sensor.capture_points) != 1:
-            raise ConfigError("--interface requires exactly one capture point")
-        point = replace(config.sensor.capture_points[0], interface=args.interface)
+            raise ConfigError(
+                "--interface / IBN_CAPTURE_INTERFACE requires exactly one capture point"
+            )
+        point = replace(config.sensor.capture_points[0], interface=interface)
         config = replace(config, sensor=replace(config.sensor, capture_points=(point,)))
 
     monitor = LiveMonitor(config, config_path=args.config)

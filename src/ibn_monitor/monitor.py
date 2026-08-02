@@ -47,9 +47,9 @@ class LiveMonitor:
         self._evidence = evidence
         self._notifier = build_v2_notifier(config.notifications)
         if sources is None:
-            from .capture_afpacket import build_af_packet_sources
+            from .capture_live import build_live_sources
 
-            sources = build_af_packet_sources(config, boot_id=self._boot_id)
+            sources = build_live_sources(config, boot_id=self._boot_id)
         self._sources = sources
         self._worker = PipelineWorker(
             config,

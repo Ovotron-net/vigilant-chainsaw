@@ -1,0 +1,71 @@
+{
+  "version": 2,
+  "sensor": {
+    "id": "win-edge-01",
+    "topology": "host",
+    "capture_points": [
+      {
+        "name": "lan",
+        "interface": "auto",
+        "direction": "both",
+        "promiscuous": false
+      }
+    ]
+  },
+  "processing": {
+    "observation_queue_capacity": 10000,
+    "queue_recovery_cooldown_seconds": 30.0,
+    "graceful_drain_seconds": 10.0
+  },
+  "episodes": {
+    "capacity": 10000,
+    "idle_seconds": 30,
+    "progress_seconds": 60,
+    "replay_lateness_seconds": 2.0
+  },
+  "journal": {
+    "file": "data/logs/events-v2.jsonl",
+    "max_bytes": 10485760,
+    "backup_count": 5,
+    "fsync_interval_seconds": 1.0,
+    "emergency_max_events": 1000,
+    "emergency_max_bytes": 8388608
+  },
+  "http": {
+    "probe": {
+      "enabled": true,
+      "bind": "127.0.0.1",
+      "port": 9108
+    },
+    "operations": {
+      "enabled": true,
+      "bind": "127.0.0.1",
+      "port": 9109,
+      "allow_non_loopback": false
+    }
+  },
+  "notifications": {
+    "webhook_url_env": "IBN_WEBHOOK_URL",
+    "timeout_seconds": 3.0,
+    "minimum_severity": "high",
+    "max_attempts": 5,
+    "max_elapsed_seconds": 60.0,
+    "shutdown_drain_seconds": 5.0,
+    "insecure_allow_http_loopback": false
+  },
+  "rules": [
+    {
+      "id": "DEV-DB",
+      "description": "development must not reach production database",
+      "enabled": true,
+      "match": {
+        "source_cidrs": ["10.20.0.0/16"],
+        "destination_cidrs": ["10.50.10.8/32"],
+        "protocol": "tcp",
+        "destination_ports": [5432]
+      },
+      "severity": "critical",
+      "enforcement": "none"
+    }
+  ]
+}

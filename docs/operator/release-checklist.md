@@ -43,8 +43,10 @@ See `tests/integration_linux/README.md`.
 ## Manual operator smoke
 
 - [ ] Install unit via `scripts/install-systemd.sh` on a lab host
+  **or** `docker compose up --build -d` (see `docs/operator/docker.md`)
 - [ ] `/healthz` 200, `/readyz` becomes ready after interfaces up
 - [ ] Ops dashboard on loopback 9109
+- [ ] (Docker) image builds; `docker compose --profile tools run --rm validate` ok
 - [ ] SIGHUP rule-only reload journals success/noop
 - [ ] Non-rule change reload journals `restart_required`
 - [ ] `apply-nftables.sh` backs up, checks, applies, lists table

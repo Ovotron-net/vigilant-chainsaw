@@ -1,0 +1,129 @@
+{
+  "operational": {
+    "state": "ready",
+    "ready": true,
+    "reasons": [],
+    "policy_revision": "a1b2c3d4e5f6789012345678abcdef01",
+    "config_revision": "fedcba9876543210abcdef0123456789",
+    "sensor_id": "edge-gw-01",
+    "boot_id": "boot-01JEXAMPLE00000000000000",
+    "queue_depth": 12,
+    "queue_capacity": 10000,
+    "app_queue_drops_total": 0,
+    "kernel_drops_total": 0,
+    "sources": [
+      {
+        "capture_point": "wan",
+        "interface": "eth0",
+        "state": "established",
+        "source_generation": "src-01JEXAMPLE00000000000001",
+        "last_error": null,
+        "kernel_packets": 1048576,
+        "kernel_drops": 0
+      }
+    ]
+  },
+  "totals": {
+    "observations": 1000,
+    "complete": 980,
+    "partial": 15,
+    "undecodable": 5,
+    "matched_observations": 3,
+    "rule_matches": 3,
+    "episodes_started": 1,
+    "episodes_progressed": 2,
+    "episodes_closed": 0
+  },
+  "rules": [
+    {
+      "id": "DEV-DB",
+      "description": "development must not reach production database",
+      "enabled": true,
+      "match": {
+        "source_cidrs": ["10.20.0.0/16"],
+        "destination_cidrs": ["10.50.10.8/32"],
+        "protocol": "tcp",
+        "destination_ports": [5432]
+      },
+      "severity": "critical",
+      "enforcement": "nftables_drop_candidate"
+    }
+  ],
+  "active_episodes": [
+    {
+      "episode_id": "ep-01JEXAMPLE00000000000002",
+      "phase": "progress",
+      "rule_id": "DEV-DB",
+      "severity": "critical",
+      "enforcement": "nftables_drop_candidate",
+      "source": "10.20.5.14",
+      "destination": "10.50.10.8",
+      "protocol": "tcp",
+      "destination_port": 5432,
+      "observation_count": 3,
+      "observed_bytes": 180,
+      "first_observed_at": "2026-07-24T12:00:00+00:00",
+      "last_observed_at": "2026-07-24T12:01:30+00:00",
+      "close_reason": null
+    }
+  ],
+  "active_episodes_truncated": false,
+  "recent_events": [
+    {
+      "schema_version": 2,
+      "event_id": "evt-01JEXAMPLE00000000000003",
+      "event_type": "violation_episode",
+      "sensor_id": "edge-gw-01",
+      "boot_id": "boot-01JEXAMPLE00000000000000",
+      "sequence": 42,
+      "emitted_at": "2026-07-24T12:01:30.123456+00:00",
+      "policy_revision": "a1b2c3d4e5f6789012345678abcdef01",
+      "payload": {
+        "episode_id": "ep-01JEXAMPLE00000000000002",
+        "phase": "progress",
+        "rule": {
+          "id": "DEV-DB",
+          "description": "development must not reach production database",
+          "severity": "critical",
+          "enforcement": "nftables_drop_candidate"
+        },
+        "flow": {
+          "ip_version": 4,
+          "source": "10.20.5.14",
+          "destination": "10.50.10.8",
+          "protocol": "tcp",
+          "source_port": 50000,
+          "destination_port": 5432,
+          "icmp_type": null,
+          "icmp_code": null,
+          "fields": 127,
+          "decode_reason": null
+        },
+        "first_observed_at": "2026-07-24T12:00:00+00:00",
+        "last_observed_at": "2026-07-24T12:01:30+00:00",
+        "duration_seconds": 90.0,
+        "observation_count": 3,
+        "observed_bytes": 180,
+        "late_observation_count": 0,
+        "per_capture_point": {
+          "wan": {
+            "observations": 3,
+            "observed_bytes": 180
+          }
+        },
+        "truncated": false,
+        "close_reason": null
+      }
+    }
+  ],
+  "recent_events_truncated": false,
+  "journal": {
+    "healthy": true
+  },
+  "notifier": {
+    "sent": 2,
+    "failed": 0,
+    "dropped": 0,
+    "suppressed": 0
+  }
+}

@@ -13,13 +13,13 @@
 
 | Capability | Detail |
 |---|---|
-| **Continuous capture (v1)** | IPv4/IPv6 header metadata via Scapy (`AsyncSniffer` or PCAP replay) |
+| **Continuous capture** | Windows: raw IPv4 (`SIO_RCVALL`). Linux: AF_PACKET. Offline: classic PCAP replay |
 | **Declarative policy** | V1: CIDRs, protocol, ports, severity, `alert` / `drop`. V2: explicit prohibited-flow assertions with enforcement disposition |
 | **No payload capture** | Only IP/transport fields — never application body bytes |
 | **Structured events** | V1 rotating JSONL + optional webhook; v2 schema-v2 episode evidence envelopes |
 | **V2 classic PCAP replay** | Header-only streaming, event-time watermark, violation episodes (PCAPNG rejected) |
 | **Live reload** | `SIGHUP` swaps v1 rules without stopping capture |
-| **Observability** | `/healthz`, `/readyz`, Prometheus `/metrics`, `/api/state`, HTML dashboard at `/` |
+| **Observability** | Probe `:9108` (`/healthz`, `/readyz`, `/metrics`); ops `:9109` (`/`, `/api/state`) |
 | **Enforcement (optional)** | Render v1 `action=drop` rules to `inet ibn_monitor` for gateway `nftables` |
 
 ## Quick start
@@ -35,18 +35,34 @@ pip install -e ".[dev]"
 ibn-monitor validate --config config/policy.json
 ```
 
-### Live capture (Linux)
+### Live capture (Windows — primary)
 
-Requires `libpcap` and `CAP_NET_RAW` (or root):
+Run an elevated PowerShell (Administrator). Raw sockets use `SIO_RCVALL`
+(no Scapy/Npcap dependency). Default policy:
+`config/policy.v2.windows.json` (`interface: "auto"`).
 
-```bash
-sudo apt-get install -y libpcap0.8 nftables
-ip -brief link   # set sensor.interface in config/policy.json
-
-sudo .venv/bin/ibn-monitor run --config config/policy.json
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+New-Item -ItemType Directory -Force -Path data\logs | Out-Null
+# Elevated:
+ibn-monitor run
+# or: ibn-monitor run --config config/policy.v2.windows.json --interface 192.168.1.10
 ```
 
-Events go to the path in `logging.file` (example policy: `/var/log/ibn-monitor/events.jsonl`).
+Probe/ops on loopback: `http://127.0.0.1:9108/healthz`, `http://127.0.0.1:9109/`.
+
+### Live capture (Linux)
+
+Requires `CAP_NET_RAW` (or root) and AF_PACKET:
+
+```bash
+sudo apt-get install -y nftables
+ip -brief link   # set capture_points[].interface in v2 policy
+
+sudo .venv/bin/ibn-monitor run --config config/policy.v2.example.json
+```
 
 ### Without root
 
@@ -249,7 +265,7 @@ ibn-monitor render-nftables --config config/policy.json --output build/ibn-monit
 | `make validate` | policy validate |
 | `make check` | sample flow check |
 | `make pcap` | generate + replay test PCAP |
-| `make docker` | compose up --build -d |
+| `make docker` | `docker compose up --build -d` (see `docs/operator/docker.md`) |
 | `make nftables` | render + `nft --check` |
 
 ## Webhook notifications
@@ -272,30 +288,53 @@ ibn-monitor run --config config/policy.json
 - Events below `minimum_severity` are not sent; duplicates within `deduplication_seconds` (same rule + flow key) are suppressed. **Every** match is still written to the local log.
 - Never commit webhook URLs.
 
-## Health, metrics, and dashboard
+## Probe and operations HTTP (v2)
 
-Default bind: `127.0.0.1:9108`.
+Live v2 splits HTTP into two loopback listeners. V1 still uses a single
+`health` block; migrate with `ibn-monitor migrate-policy` (see
+[`docs/operator/migration-and-events.md`](docs/operator/migration-and-events.md)).
+
+### Probe (default `127.0.0.1:9108`)
 
 | Path | Purpose |
 |---|---|
-| `/` | Embedded dashboard (metrics, rules, recent violations; 3s refresh) |
-| `/api/state` | JSON: metrics + rules + recent events |
-| `/healthz` | Liveness |
-| `/readyz` | Ready once capture is established (`503` until then) |
+| `/healthz` | Liveness (`200` while the process is up, including degraded) |
+| `/readyz` | Ready only when operational `state=ready` (`503` otherwise) |
 | `/metrics` | Prometheus text format |
 
 ```bash
-curl http://127.0.0.1:9108/healthz
-curl http://127.0.0.1:9108/readyz
-curl http://127.0.0.1:9108/metrics
-curl http://127.0.0.1:9108/api/state
+curl -sS http://127.0.0.1:9108/healthz
+curl -sS http://127.0.0.1:9108/readyz
+curl -sS http://127.0.0.1:9108/metrics
+```
+
+### Operations (default `127.0.0.1:9109`)
+
+| Path | Purpose |
+|---|---|
+| `/` | Embedded dashboard (rules, episodes, recent evidence; 3s refresh) |
+| `/api/state` | Atomic JSON snapshot from `ReadModel.view()` |
+
+```bash
+curl -sS http://127.0.0.1:9109/
+curl -sS http://127.0.0.1:9109/api/state
 ```
 
 > PowerShell: use `curl.exe` so you get the real curl binary (`curl` is an alias for `Invoke-WebRequest`).
 
-Do not expose the health listener on untrusted networks without access control.
+Non-loopback **operations** bind requires `http.operations.allow_non_loopback=true`
+and an authenticated reverse proxy or SSH tunnel. Do not expose probe or
+operations listeners on untrusted networks without access control.
+
+Snapshot contract (nested fields, truncation, example JSON):
+[`docs/operator/ops-state-api.md`](docs/operator/ops-state-api.md).
+Day-2 operator flow: [`docs/operator/runbook.md`](docs/operator/runbook.md).
 
 ## Event format
+
+V1 wire shape below (legacy check/log path). Live and classic-PCAP **v2** emit
+schema-v2 evidence envelopes — see
+[`docs/operator/migration-and-events.md`](docs/operator/migration-and-events.md).
 
 One JSON object per line:
 
@@ -325,17 +364,31 @@ One JSON object per line:
 }
 ```
 
-## Docker
+## Docker (Windows Docker Desktop only)
 
-Live capture needs host networking and Linux capabilities:
+Compose targets **Windows + Docker Desktop** (Linux containers, bridge network,
+published ports). Live AF_PACKET capture is **not** available here — use
+systemd on a real Linux host for production sensing. Operator guide:
+[`docs/operator/docker.md`](docs/operator/docker.md).
 
-```bash
-mkdir -p data/logs
+```powershell
+Copy-Item .env.example .env -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path data\logs, data\lib | Out-Null
 docker compose up --build -d
-docker compose logs -f
+docker compose logs -f monitor
+
+curl.exe -sS http://127.0.0.1:9108/healthz
+curl.exe -sS http://127.0.0.1:9109/api/state
 ```
 
-Compose mounts `config/policy.json` read-only and writes logs to `./data/logs`. `IBN_WEBHOOK_URL` from the host environment is forwarded when set.
+| Piece | Detail |
+|---|---|
+| Ports | `9108` probe, `9109` ops/dashboard (published to Windows host) |
+| Policy | `config/policy.v2.docker.json` binds `0.0.0.0` for Desktop port maps |
+| Journal | `.\data\logs` → `/var/log/ibn-monitor` |
+| Live capture | Degraded on Desktop (`/readyz` 503 expected) |
+| Offline | `docker compose --profile tools run --rm validate` |
+| Replay | `docker compose --profile replay run --rm replay` |
 
 ## systemd (Linux)
 
