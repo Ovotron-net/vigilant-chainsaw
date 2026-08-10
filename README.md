@@ -1,4 +1,4 @@
-# ibn-monitor
+# Intent-Based Continuous Traffic Monitor
 
 **Intent-Based Continuous Traffic Monitor** — a Linux network sensor that evaluates live or offline IP traffic against declarative JSON policies, logs violations as JSONL, optionally notifies via webhook, exposes health/metrics and a small dashboard, and can render `action=drop` rules into an `nftables` forwarding table.
 
