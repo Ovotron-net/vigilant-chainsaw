@@ -1,20 +1,90 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.local
+.env.*.local
+
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+*.egg
 *.egg-info/
-.venv/
-.pytest_cache/
-.ruff_cache/
+dist/
+build/
+*.eggs
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+.Python
+*.cover
 .coverage
+.coverage.*
 htmlcov/
+.pytest_cache/
+.tox/
+.hypothesis/
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.sublime-project
+.sublime-workspace
+*.iml
+
+# pyenv
+.python-version
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+.jupyter/
+
+# Project-specific
+data/logs/*.jsonl
+data/logs/*.jsonl.clean
+data/logs/*.log
+data/logs/*.log.*
+
+# Build artifacts
 build/
 dist/
-data/logs/
-data/lib/
+*.whl
+*.tar.gz
+
+# Runtime data
 *.pcap
-*.jsonl
-.env
-.idea/
-.vscode/
+*.pcapng
 
-.worktrees/
+# OS-specific
+.DS_Store
+Thumbs.db
+.vscode-settings
 
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*.rej
+*~
+
+# Editor temporary files
+.~*
+
+.junie/
+.ruff_cache/
+.codex/
