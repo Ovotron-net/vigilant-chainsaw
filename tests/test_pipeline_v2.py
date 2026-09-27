@@ -5,11 +5,9 @@ from factories import observation, policy_rule, v2_config
 
 from ibn_monitor.capture import MemoryObservationSource
 from ibn_monitor.config import runtime_identity_hash
-from ibn_monitor.episodes import EpisodeSettings, EpisodeTracker
 from ibn_monitor.evidence_stub import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
-from ibn_monitor.pipeline import ObservationQueue, process_observation
-from ibn_monitor.policy import compile_policy
+from ibn_monitor.pipeline import ObservationQueue
 
 
 def test_observation_queue_drop_oldest():
@@ -20,21 +18,6 @@ def test_observation_queue_drop_oldest():
     first = queue.get(timeout=0.1)
     assert first is not None
     assert first.source_port == 2
-
-
-def test_process_observation_matches_sorted_rule_ids():
-    rules = (policy_rule(id="B"), policy_rule(id="A", enforcement="none"))
-    policy = compile_policy(rules, "a" * 64)
-    tracker = EpisodeTracker(EpisodeSettings(10, 30, 60), id_factory=lambda: "e1")
-    transitions = process_observation(
-        observation(),
-        lifecycle_time=0,
-        policy=policy,
-        tracker=tracker,
-        policy_revision="a" * 64,
-    )
-    starts = [item for item in transitions if item.phase == "start"]
-    assert [item.rule.id for item in starts] == ["A", "B"]
 
 
 def test_live_monitor_with_memory_source():

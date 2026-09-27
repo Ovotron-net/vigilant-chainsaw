@@ -101,6 +101,7 @@ flowchart TD
         OQ[Observation queue<br/>drop-oldest]
         CTL[Control lane<br/>reload / stats / shutdown]
         WORK[PipelineWorker<br/>pipeline.py]
+        PROC[EpisodeProcessor<br/>processing.py]
         MATCH[evaluate_policy<br/>policy.py]
         EP[EpisodeTracker<br/>episodes.py]
         SEQ[EvidenceSequencer<br/>evidence.py]
@@ -125,22 +126,21 @@ flowchart TD
 
     NIC --> AFP --> STG --> DEC --> OQ
     PCAP --> PCP --> RPL
-    RPL --> MATCH
+    RPL --> PROC
     POLCFG --> MATCH
     POLCFG --> RNF
     OQ --> WORK
     CTL --> WORK
-    WORK --> MATCH --> EP --> SEQ
+    WORK --> PROC --> MATCH --> EP --> SEQ
     SEQ --> JRN
     JRN --> WH
     JRN --> RM
     RM --> PROBE
     RM --> OPS
     RNF --> NFT
-    RPL --> SEQ
 ```
 
-**Live data flow (v2):** AF_PACKET → decode → Observation queue → `PipelineWorker` → `evaluate_policy` → `EpisodeTracker` → `EvidenceSequencer` → `JournalWriter` → webhook / ops snapshot / probe.
+**Live data flow (v2):** AF_PACKET → decode → Observation queue → `PipelineWorker` → `EpisodeProcessor` (`evaluate_policy` → `EpisodeTracker` → `EvidenceSequencer`) → `JournalWriter` → webhook / ops snapshot / probe.
 
 **Offline:** `ibn-monitor replay` streams classic PCAP through the same policy and episode path (no root).
 
@@ -153,8 +153,10 @@ Modules under `src/ibn_monitor/` — no web framework, no ORM:
 | `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
 | `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
 | `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |
-| `decode.py` / `pcap.py` / `policy.py` / `episodes.py` / `replay.py` | Pure v2 decode, PCAP, match, episodes, offline replay |
-| `pipeline.py` / `ops_state.py` / `read_model.py` | Ordered worker, ops state, atomic operations projection |
+| `decode.py` / `pcap.py` / `policy.py` / `episodes.py` | Pure v2 decode, PCAP, match, episode tracking |
+| `processing.py` | `EpisodeProcessor`: Observation/tick/reload/shutdown → sequenced evidence envelopes (no I/O); owns the reload contract |
+| `replay.py` | Offline replay: PCAP watermark ordering around the Episode processor |
+| `pipeline.py` / `ops_state.py` / `read_model.py` | Threaded worker (queues, control lane) around the Episode processor, ops state, atomic operations projection |
 | `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
 | `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
 | `monitor.py` | `LiveMonitor` composition root |

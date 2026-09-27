@@ -13,6 +13,7 @@ from .models import (
     OperationalSnapshot,
     PolicyRule,
 )
+from .processing import ProcessingCounts
 
 
 def rule_to_dict(rule: PolicyRule) -> dict[str, Any]:
@@ -53,19 +54,6 @@ def episode_summary(transition: EpisodeTransition) -> dict[str, Any]:
 
 
 @dataclass
-class PipelineCounters:
-    observations: int = 0
-    complete: int = 0
-    partial: int = 0
-    undecodable: int = 0
-    matched_observations: int = 0
-    rule_matches: int = 0
-    episodes_started: int = 0
-    episodes_progressed: int = 0
-    episodes_closed: int = 0
-
-
-@dataclass
 class ReadModel:
     """Thread-safe projection updated only by the processing worker."""
 
@@ -73,7 +61,7 @@ class ReadModel:
     _lock: Lock = field(default_factory=Lock, repr=False)
     _ops: OperationalSnapshot | None = None
     _rules: tuple[PolicyRule, ...] = ()
-    _counters: PipelineCounters = field(default_factory=PipelineCounters)
+    _counters: ProcessingCounts = field(default_factory=ProcessingCounts)
     _recent_events: deque[dict[str, object]] = field(default_factory=lambda: deque(maxlen=100))
     _events_truncated: bool = False
     _journal_healthy: bool = True
@@ -93,27 +81,9 @@ class ReadModel:
         with self._lock:
             self._rules = rules
 
-    def note_observation(self, outcome: str, *, matched: bool, rule_matches: int) -> None:
+    def set_counts(self, counts: ProcessingCounts) -> None:
         with self._lock:
-            self._counters.observations += 1
-            if outcome == "complete":
-                self._counters.complete += 1
-            elif outcome == "partial":
-                self._counters.partial += 1
-            else:
-                self._counters.undecodable += 1
-            if matched:
-                self._counters.matched_observations += 1
-            self._counters.rule_matches += rule_matches
-
-    def note_phase(self, phase: str) -> None:
-        with self._lock:
-            if phase == "start":
-                self._counters.episodes_started += 1
-            elif phase == "progress":
-                self._counters.episodes_progressed += 1
-            elif phase == "close":
-                self._counters.episodes_closed += 1
+            self._counters = counts
 
     def note_envelope(self, envelope: EvidenceEnvelope) -> None:
         with self._lock:

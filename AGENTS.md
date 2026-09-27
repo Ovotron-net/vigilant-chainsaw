@@ -13,8 +13,10 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 | `capture_windows.py` / `windows_packet.py` | Windows `WindowsRawSource` (SIO_RCVALL, DLT_RAW) |
 | `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
 | `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |
-| `decode.py` / `pcap.py` / `policy.py` / `episodes.py` / `replay.py` | Pure v2 decode, PCAP, match, episodes, offline replay |
-| `pipeline.py` / `ops_state.py` / `read_model.py` | Ordered worker, ops state, atomic operations projection |
+| `decode.py` / `pcap.py` / `policy.py` / `episodes.py` | Pure v2 decode, PCAP, match, episode tracking |
+| `processing.py` | `EpisodeProcessor`: Observation/tick/reload/shutdown → sequenced evidence envelopes (no I/O); owns the reload contract |
+| `replay.py` | Offline replay: PCAP watermark ordering around the Episode processor |
+| `pipeline.py` / `ops_state.py` / `read_model.py` | Threaded worker (queues, control lane) around the Episode processor, ops state, atomic operations projection |
 | `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
 | `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
 | `monitor.py` | `LiveMonitor` composition root |
@@ -22,7 +24,7 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 | `enforcement.py` | Topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
 | `evidence.py` | `EvidenceSequencer` (sole sequence allocator) + canonical `serialize_evidence` |
 
-**Live data flow (v2):** capture (Windows SIO_RCVALL or Linux AF_PACKET) → decode → Observation queue → PipelineWorker → evaluate_policy → EpisodeTracker → EvidenceSequencer → JournalWriter → WebhookV2Notifier → ops snapshot / probe.
+**Live data flow (v2):** capture (Windows SIO_RCVALL or Linux AF_PACKET) → decode → Observation queue → PipelineWorker → EpisodeProcessor (evaluate_policy → EpisodeTracker → EvidenceSequencer) → JournalWriter → WebhookV2Notifier → ops snapshot / probe.
 
 **Offline:** `ibn-monitor replay` (classic PCAP, no admin). **Live:** Windows or Linux + policy version 2 (admin/CAP_NET_RAW).
 
@@ -60,6 +62,7 @@ systemd for real sensing. Env: `IBN_CONFIG`, `IBN_WEBHOOK_URL`.
 
 - Frozen models; no payload capture.
 - Scapy is **not** a runtime dependency.
-- Sequence allocation stays on `EvidenceSequencer` (worker); journal is durability only.
+- Sequence allocation stays on `EvidenceSequencer` inside `EpisodeProcessor`; journal is durability only.
+- Live and replay both go through `EpisodeProcessor`; never re-implement evaluate → episode → sequence elsewhere.
 - SIGHUP reloads rules only when `runtime_identity_hash` is unchanged.
 - Raise `ConfigError` for config problems.
