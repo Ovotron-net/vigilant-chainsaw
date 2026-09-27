@@ -9,13 +9,13 @@ import signal
 import sys
 import threading
 import uuid
-from dataclasses import replace
 from datetime import UTC, datetime
 from ipaddress import ip_address
 from pathlib import Path
 
 from .config import (
     ConfigError,
+    ConfigSource,
     detect_config_version,
     load_v2_config,
     validate_v2_config,
@@ -299,17 +299,11 @@ def _run(args: argparse.Namespace) -> int:
             "use: ibn-monitor replay for offline PCAP"
         )
 
-    config = load_v2_config(args.config)
-    interface = args.interface or os.environ.get("IBN_CAPTURE_INTERFACE") or None
-    if interface:
-        if len(config.sensor.capture_points) != 1:
-            raise ConfigError(
-                "--interface / IBN_CAPTURE_INTERFACE requires exactly one capture point"
-            )
-        point = replace(config.sensor.capture_points[0], interface=interface)
-        config = replace(config, sensor=replace(config.sensor, capture_points=(point,)))
-
-    monitor = LiveMonitor(config, config_path=args.config)
+    source = ConfigSource(
+        args.config,
+        interface=args.interface or os.environ.get("IBN_CAPTURE_INTERFACE") or None,
+    )
+    monitor = LiveMonitor(source.load(), config_source=source)
     stop_event = threading.Event()
     force: dict[str, int | None] = {"signum": None}
 

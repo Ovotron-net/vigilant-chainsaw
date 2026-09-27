@@ -3,9 +3,10 @@ from pathlib import Path
 
 from factories import observation, policy_rule
 
+from ibn_monitor.config import JournalV2Config
 from ibn_monitor.episodes import EpisodeSettings, EpisodeTracker
 from ibn_monitor.evidence import EvidenceSequencer
-from ibn_monitor.journal import JournalConfig, JournalWriter
+from ibn_monitor.journal import JournalWriter
 
 
 def _start_envelope(boot: str = "b1"):
@@ -24,7 +25,7 @@ def _start_envelope(boot: str = "b1"):
 def test_journal_writes_and_fsyncs(tmp_path):
     path = tmp_path / "events.jsonl"
     writer = JournalWriter(
-        JournalConfig(file=str(path), max_bytes=1_000_000, fsync_interval_seconds=0.01)
+        JournalV2Config(file=str(path), max_bytes=1_000_000, fsync_interval_seconds=0.01)
     )
     writer.commit(_start_envelope())
     writer.flush()
@@ -37,7 +38,7 @@ def test_journal_writes_and_fsyncs(tmp_path):
 def test_journal_rotates_when_max_bytes_exceeded(tmp_path):
     path = tmp_path / "events.jsonl"
     writer = JournalWriter(
-        JournalConfig(file=str(path), max_bytes=200, backup_count=2, fsync_interval_seconds=60)
+        JournalV2Config(file=str(path), max_bytes=200, backup_count=2, fsync_interval_seconds=60)
     )
     for index in range(20):
         writer.commit(_start_envelope(boot=f"b{index}"))
@@ -47,7 +48,7 @@ def test_journal_rotates_when_max_bytes_exceeded(tmp_path):
 
 def test_journal_emergency_buffer_on_failure(tmp_path, monkeypatch):
     path = tmp_path / "events.jsonl"
-    writer = JournalWriter(JournalConfig(file=str(path), emergency_max_events=5))
+    writer = JournalWriter(JournalV2Config(file=str(path), emergency_max_events=5))
     writer.commit(_start_envelope("ok"))
 
     def boom(*_args, **_kwargs):

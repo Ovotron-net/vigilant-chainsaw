@@ -8,7 +8,7 @@ import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .config import ListenerV2Config
+from .config import ListenerV2Config, is_loopback_host
 from .dashboard import DASHBOARD_HTML
 
 logger = logging.getLogger(__name__)
@@ -40,10 +40,7 @@ class OperationsServer:
     def start(self) -> None:
         if not self._config.enabled:
             return
-        if (
-            self._config.bind not in {"127.0.0.1", "::1", "localhost"}
-            and not self._config.allow_non_loopback
-        ):
+        if not is_loopback_host(self._config.bind) and not self._config.allow_non_loopback:
             raise RuntimeError("operations HTTP bind is non-loopback without allow_non_loopback")
         provider = self._state_provider
 

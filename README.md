@@ -149,7 +149,7 @@ Modules under `src/ibn_monitor/` — no web framework, no ORM:
 | Module | Role |
 |---|---|
 | `models.py` | Frozen domain types: `Observation`, `PolicyRule`, episodes, evidence envelopes |
-| `config.py` | V2 `validate_v2_config`/`load_v2_config` + `runtime_identity_hash` |
+| `config.py` | V2 `validate_v2_config`/`load_v2_config` (one builder per section; defaults live on the dataclasses), `ConfigSource` (file + `--interface` override, same on reload), `runtime_identity_hash`, `is_loopback_host` |
 | `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
 | `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
 | `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |

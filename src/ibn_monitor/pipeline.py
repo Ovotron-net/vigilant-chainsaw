@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from .config import PolicyV2Config, load_v2_config
+from .config import ConfigSource, PolicyV2Config
 from .evidence_stub import EvidenceWriter
 from .models import (
     ControlMessage,
@@ -150,7 +150,7 @@ class PipelineConfig:
     queue_recovery_cooldown_seconds: float
     graceful_drain_seconds: float
     timer_interval_seconds: float = 0.25
-    config_path: str = ""
+    config_source: ConfigSource | None = None
 
 
 class PipelineWorker:
@@ -422,8 +422,11 @@ class PipelineWorker:
 
     def _reload(self) -> None:
         emitted_at = datetime.now(UTC)
+        source = self._pipeline_config.config_source
         try:
-            new_config = load_v2_config(self._pipeline_config.config_path)
+            if source is None:
+                raise RuntimeError("no config source to reload from")
+            new_config = source.load()
         except Exception as exc:
             self._emit(self._processor.reload_failed(str(exc), emitted_at=emitted_at))
             return

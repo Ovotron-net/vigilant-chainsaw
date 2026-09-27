@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from factories import observation, v2_config
 
 from ibn_monitor.capture import MemoryObservationSource
+from ibn_monitor.config import ConfigSource
 from ibn_monitor.dashboard import DASHBOARD_HTML
 from ibn_monitor.evidence_stub import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
@@ -76,7 +77,7 @@ def test_live_monitor_operations_state_includes_episode():
     source = MemoryObservationSource("wan")
     monitor = LiveMonitor(
         config,
-        config_path="config/policy.v2.example.json",
+        config_source=ConfigSource("config/policy.v2.example.json"),
         sources=(source,),
         evidence=evidence,
         boot_id="boot-ops",

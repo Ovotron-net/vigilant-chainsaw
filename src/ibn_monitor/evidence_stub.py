@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
+from .config import JournalV2Config
 from .evidence import serialize_evidence
-from .journal import JournalConfig, JournalWriter
+from .journal import JournalWriter
 from .models import EvidenceEnvelope
 
 
@@ -30,10 +31,8 @@ class MemoryEvidenceWriter:
 class FileEvidenceWriter:
     """Thin wrapper: durable JournalWriter for production paths."""
 
-    def __init__(self, path: Path | str, **journal_kwargs: object) -> None:
-        self._journal = JournalWriter(
-            JournalConfig(file=str(path), **journal_kwargs)  # type: ignore[arg-type]
-        )
+    def __init__(self, config: JournalV2Config) -> None:
+        self._journal = JournalWriter(config)
 
     def commit(self, envelope: EvidenceEnvelope) -> None:
         self._journal.commit(envelope)

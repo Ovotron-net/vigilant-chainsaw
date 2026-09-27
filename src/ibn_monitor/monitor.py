@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from pathlib import Path
 
 from .capture import ObservationSource
-from .config import PolicyV2Config
+from .config import ConfigSource, PolicyV2Config
 from .evidence_stub import EvidenceWriter, FileEvidenceWriter
 from .models import ControlMessage
 from .notifications_v2 import build_v2_notifier
@@ -24,7 +23,7 @@ class LiveMonitor:
         self,
         config: PolicyV2Config,
         *,
-        config_path: str,
+        config_source: ConfigSource | None,
         sources: tuple[ObservationSource, ...] | None = None,
         evidence: EvidenceWriter | None = None,
         boot_id: str | None = None,
@@ -32,18 +31,9 @@ class LiveMonitor:
         operations_enabled: bool | None = None,
     ) -> None:
         self._config = config
-        self._config_path = config_path
         self._boot_id = boot_id or str(uuid.uuid4())
         if evidence is None:
-            journal = config.journal
-            evidence = FileEvidenceWriter(
-                Path(journal.file),
-                max_bytes=journal.max_bytes,
-                backup_count=journal.backup_count,
-                fsync_interval_seconds=journal.fsync_interval_seconds,
-                emergency_max_events=journal.emergency_max_events,
-                emergency_max_bytes=journal.emergency_max_bytes,
-            )
+            evidence = FileEvidenceWriter(config.journal)
         self._evidence = evidence
         self._notifier = build_v2_notifier(config.notifications)
         if sources is None:
@@ -57,7 +47,7 @@ class LiveMonitor:
                 observation_capacity=config.processing.observation_queue_capacity,
                 queue_recovery_cooldown_seconds=(config.processing.queue_recovery_cooldown_seconds),
                 graceful_drain_seconds=config.processing.graceful_drain_seconds,
-                config_path=config_path,
+                config_source=config_source,
             ),
             evidence=self._evidence,
             boot_id=self._boot_id,

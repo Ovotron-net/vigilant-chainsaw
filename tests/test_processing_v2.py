@@ -114,7 +114,7 @@ def test_live_and_replay_produce_the_same_episodes(tmp_path):
     source = MemoryObservationSource("wan")
     monitor = LiveMonitor(
         config,
-        config_path="unused.json",
+        config_source=None,
         sources=(source,),
         evidence=evidence,
         boot_id="parity",

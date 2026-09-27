@@ -15,7 +15,7 @@ import urllib.request
 from typing import Protocol
 from urllib.parse import urlparse
 
-from .config import NotificationV2Config
+from .config import NotificationV2Config, is_loopback_host
 from .models import EpisodeTransition, EvidenceEnvelope, SystemPayload
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ class WebhookV2Notifier:
         if (
             parsed.scheme == "http"
             and self._config.insecure_allow_http_loopback
-            and parsed.hostname in {"127.0.0.1", "::1", "localhost"}
+            and is_loopback_host(parsed.hostname)
         ):
             return url
         raise ValueError("webhook URL must be https (or http loopback with insecure flag)")

@@ -4,7 +4,7 @@ from dataclasses import replace
 from factories import observation, policy_rule, v2_config
 
 from ibn_monitor.capture import MemoryObservationSource
-from ibn_monitor.config import runtime_identity_hash
+from ibn_monitor.config import ConfigSource, runtime_identity_hash
 from ibn_monitor.evidence_stub import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
 from ibn_monitor.pipeline import ObservationQueue
@@ -26,7 +26,7 @@ def test_live_monitor_with_memory_source():
     source = MemoryObservationSource("wan")
     monitor = LiveMonitor(
         config,
-        config_path="config/policy.v2.example.json",
+        config_source=ConfigSource("config/policy.v2.example.json"),
         sources=(source,),
         evidence=evidence,
         boot_id="boot-test",
@@ -59,7 +59,7 @@ def test_shutdown_closes_episodes():
     source = MemoryObservationSource("wan")
     monitor = LiveMonitor(
         config,
-        config_path="config/policy.v2.example.json",
+        config_source=ConfigSource("config/policy.v2.example.json"),
         sources=(source,),
         evidence=evidence,
         boot_id="boot-stop",

@@ -7,7 +7,7 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 | Module | Role |
 |---|---|
 | `models.py` | Frozen domain types: `Observation`, `PolicyRule`, episodes, evidence envelopes |
-| `config.py` | V2 `validate_v2_config`/`load_v2_config` + `runtime_identity_hash` |
+| `config.py` | V2 `validate_v2_config`/`load_v2_config` (one builder per section; defaults live on the dataclasses), `ConfigSource` (file + `--interface` override, same on reload), `runtime_identity_hash`, `is_loopback_host` |
 | `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
 | `capture_live.py` | Platform factory → Windows raw IP or Linux AF_PACKET |
 | `capture_windows.py` / `windows_packet.py` | Windows `WindowsRawSource` (SIO_RCVALL, DLT_RAW) |
@@ -64,5 +64,5 @@ systemd for real sensing. Env: `IBN_CONFIG`, `IBN_WEBHOOK_URL`.
 - Scapy is **not** a runtime dependency.
 - Sequence allocation stays on `EvidenceSequencer` inside `EpisodeProcessor`; journal is durability only.
 - Live and replay both go through `EpisodeProcessor`; never re-implement evaluate → episode → sequence elsewhere.
-- SIGHUP reloads rules only when `runtime_identity_hash` is unchanged.
+- SIGHUP reloads rules only when `runtime_identity_hash` is unchanged; reloads go through the same `ConfigSource` (overrides included) as startup.
 - Raise `ConfigError` for config problems.

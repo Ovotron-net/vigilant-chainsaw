@@ -105,7 +105,7 @@ def main() -> int:
     source = MemoryObservationSource("wan")
     monitor = LiveMonitor(
         config,
-        config_path=str(example),
+        config_source=None,
         sources=(source,),
         evidence=evidence,
         boot_id="microbench",
