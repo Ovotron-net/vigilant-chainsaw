@@ -1,13 +1,13 @@
 # AGENTS.md — ibn-monitor
 
-Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP header metadata via AF_PACKET, evaluates it against declarative JSON policies, logs schema-v2 evidence as JSONL, optionally notifies via webhook, and can render v1 `action=drop` rules into nftables.
+Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP header metadata via AF_PACKET, evaluates it against declarative JSON policies, logs schema-v2 evidence as JSONL, optionally notifies via webhook, and can render v2 `nftables_drop_candidate` rules into topology-aware nftables.
 
 ## Architecture
 
 | Module | Role |
 |---|---|
-| `models.py` | Frozen domain types: v2 `Observation`/`PolicyRule`/episodes/evidence; transitional v1 `Rule`/`Event` for render/check |
-| `config.py` | V1 `load_config` (render/migrate source); v2 `validate_v2_config`/`load_v2_config` + `runtime_identity_hash` |
+| `models.py` | Frozen domain types: `Observation`, `PolicyRule`, episodes, evidence envelopes |
+| `config.py` | V2 `validate_v2_config`/`load_v2_config` + `runtime_identity_hash` |
 | `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
 | `capture_live.py` | Platform factory → Windows raw IP or Linux AF_PACKET |
 | `capture_windows.py` / `windows_packet.py` | Windows `WindowsRawSource` (SIO_RCVALL, DLT_RAW) |
@@ -18,9 +18,9 @@ Intent-Based Continuous Traffic Monitor: a Linux network sensor that captures IP
 | `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
 | `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
 | `monitor.py` | `LiveMonitor` composition root |
-| `migration.py` / `cli.py` | v1→v2 migrate; validate/check/replay/run/render-nftables |
-| `enforcement.py` | V1 `render_nftables` + v2 topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
-| `engine.py` / `events.py` / `health.py` | V1 check/render helpers + legacy metrics |
+| `migration.py` / `cli.py` | Sole version 1 reader (v1→v2 migrate); validate/check/replay/run/render-nftables |
+| `enforcement.py` | Topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
+| `evidence.py` | `EvidenceSequencer` (sole sequence allocator) + canonical `serialize_evidence` |
 
 **Live data flow (v2):** capture (Windows SIO_RCVALL or Linux AF_PACKET) → decode → Observation queue → PipelineWorker → evaluate_policy → EpisodeTracker → EvidenceSequencer → JournalWriter → WebhookV2Notifier → ops snapshot / probe.
 

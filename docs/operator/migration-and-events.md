@@ -2,6 +2,9 @@
 
 ## Migrating policy v1 → v2
 
+Version 1 files are accepted only by `migrate-policy`. `validate`, `check`,
+`replay`, `run` and `render-nftables` reject them with exit code 2.
+
 ```bash
 ibn-monitor migrate-policy \
   --config config/policy.json \

@@ -4,7 +4,7 @@ from pathlib import Path
 from factories import observation, policy_rule
 
 from ibn_monitor.episodes import EpisodeSettings, EpisodeTracker
-from ibn_monitor.events import EvidenceSequencer
+from ibn_monitor.evidence import EvidenceSequencer
 from ibn_monitor.journal import JournalConfig, JournalWriter
 
 

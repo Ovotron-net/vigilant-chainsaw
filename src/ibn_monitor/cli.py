@@ -17,17 +17,17 @@ from pathlib import Path
 from .config import (
     ConfigError,
     detect_config_version,
-    load_config,
     load_v2_config,
     validate_v2_config,
 )
-from .enforcement import render_nftables, render_nftables_v2
-from .engine import PolicyEngine
+from .enforcement import render_nftables_v2
 from .migration import MigrationRequest, migrate_v1_policy
-from .models import FieldPresence, Observation, PacketMetadata
+from .models import FieldPresence, Observation
 from .monitor import LiveMonitor
 from .policy import compile_policy, evaluate_policy
 from .replay import replay_pcap
+
+DEFAULT_POLICY = "config/policy.v2.example.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,9 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run live capture (Windows raw IP / Linux AF_PACKET; policy v2)",
     )
     _default_run_config = os.environ.get("IBN_CONFIG") or (
-        "config/policy.v2.windows.json"
-        if sys.platform == "win32"
-        else "config/policy.v2.example.json"
+        "config/policy.v2.windows.json" if sys.platform == "win32" else DEFAULT_POLICY
     )
     run_parser.add_argument(
         "--config",
@@ -66,12 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     validate_parser = subparsers.add_parser("validate", help="Validate a policy file")
-    validate_parser.add_argument("--config", default="config/policy.json")
+    validate_parser.add_argument("--config", default=DEFAULT_POLICY)
     validate_parser.add_argument("--format", choices=["human", "json"], default="json")
     validate_parser.add_argument("--strict", action="store_true")
 
     check_parser = subparsers.add_parser("check", help="Evaluate one synthetic flow")
-    check_parser.add_argument("--config", default="config/policy.json")
+    check_parser.add_argument("--config", default=DEFAULT_POLICY)
     check_parser.add_argument("--source", required=True)
     check_parser.add_argument("--destination", required=True)
     check_parser.add_argument("--protocol", choices=["tcp", "udp", "icmp"], required=True)
@@ -80,9 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--format", choices=["human", "json"], default="json")
 
     nft_parser = subparsers.add_parser(
-        "render-nftables", help="Render action=drop rules as an nftables ruleset"
+        "render-nftables",
+        help="Render enforcement=nftables_drop_candidate rules as an nftables ruleset",
     )
-    nft_parser.add_argument("--config", default="config/policy.json")
+    nft_parser.add_argument("--config", default=DEFAULT_POLICY)
     nft_parser.add_argument("--output")
 
     migrate_parser = subparsers.add_parser(
@@ -152,21 +151,19 @@ def _print_diagnostics(diagnostics, *, fmt: str) -> None:
         print(f"{item.severity}: {item.code} {item.path}: {item.message}", file=sys.stderr)
 
 
-def _validate(args: argparse.Namespace) -> int:
-    version = detect_config_version(args.config)
+def _require_v2(path: str, command: str) -> None:
+    version = detect_config_version(path)
     if version == 1:
-        config = load_config(args.config)
-        payload = {
-            "valid": True,
-            "version": config.version,
-            "enabled_rules": sum(rule.enabled for rule in config.rules),
-            "drop_rules": sum(rule.enabled and rule.action == "drop" for rule in config.rules),
-        }
-        print(json.dumps(payload, indent=2))
-        return 0
+        raise ConfigError(
+            f"{command} requires a version 2 policy; version 1 is accepted only by "
+            "migrate-policy (ibn-monitor migrate-policy --config ... --output ...)"
+        )
     if version != 2:
         raise ConfigError(f"unsupported config version: {version}")
 
+
+def _validate(args: argparse.Namespace) -> int:
+    _require_v2(args.config, "validate")
     result = validate_v2_config(args.config)
     diagnostics = [item.to_dict() for item in result.diagnostics]
     payload: dict[str, object] = {
@@ -193,45 +190,7 @@ def _validate(args: argparse.Namespace) -> int:
 
 
 def _check(args: argparse.Namespace) -> int:
-    version = detect_config_version(args.config)
-    if version == 1:
-        config = load_config(args.config)
-        try:
-            ip_address(args.source)
-            ip_address(args.destination)
-        except ValueError as exc:
-            raise ConfigError(f"Invalid IP address: {exc}") from exc
-        packet = PacketMetadata(
-            timestamp="synthetic",
-            interface=None,
-            source=args.source,
-            destination=args.destination,
-            protocol=args.protocol,
-            source_port=args.source_port,
-            destination_port=args.destination_port,
-        )
-        matches = PolicyEngine(config.rules).evaluate(packet)
-        print(
-            json.dumps(
-                {
-                    "matched": bool(matches),
-                    "rules": [
-                        {
-                            "id": rule.id,
-                            "severity": rule.severity,
-                            "action": rule.action,
-                        }
-                        for rule in matches
-                    ],
-                },
-                indent=2,
-            )
-        )
-        return 2 if matches else 0
-
-    if version != 2:
-        raise ConfigError(f"unsupported config version: {version}")
-
+    _require_v2(args.config, "check")
     config = load_v2_config(args.config)
     try:
         observation = _synthetic_observation(args, config.sensor.id)
@@ -301,9 +260,7 @@ def _migrate(args: argparse.Namespace) -> int:
 
 
 def _replay(args: argparse.Namespace) -> int:
-    version = detect_config_version(args.config)
-    if version != 2:
-        raise ConfigError("replay requires a version 2 policy")
+    _require_v2(args.config, "replay")
     config = load_v2_config(args.config)
     events_path = Path(args.output)
     summary_path = None if args.summary_output == "-" else Path(args.summary_output)
@@ -334,12 +291,7 @@ def _run(args: argparse.Namespace) -> int:
             "--config <v2> --pcap FILE --output EVENTS"
         )
 
-    version = detect_config_version(args.config)
-    if version != 2:
-        raise ConfigError(
-            f"live run requires policy version 2 (got {version}); "
-            "migrate with migrate-policy or use config/policy.v2.example.json"
-        )
+    _require_v2(args.config, "run")
     system = platform.system().lower()
     if system not in {"windows", "linux"}:
         raise ConfigError(
@@ -411,13 +363,8 @@ def main(argv: list[str] | None = None) -> int:
             return _replay(args)
 
         if args.command == "render-nftables":
-            version = detect_config_version(args.config)
-            if version == 2:
-                rendered = render_nftables_v2(load_v2_config(args.config))
-            elif version == 1:
-                rendered = render_nftables(load_config(args.config))
-            else:
-                raise ConfigError(f"unsupported config version for render-nftables: {version}")
+            _require_v2(args.config, "render-nftables")
+            rendered = render_nftables_v2(load_v2_config(args.config))
             if args.output:
                 output = Path(args.output)
                 output.parent.mkdir(parents=True, exist_ok=True)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from .events import serialize_evidence
+from .evidence import serialize_evidence
 from .journal import JournalConfig, JournalWriter
 from .models import EvidenceEnvelope
 

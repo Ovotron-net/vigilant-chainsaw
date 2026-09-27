@@ -10,7 +10,7 @@ from typing import TextIO
 from .config import PolicyV2Config
 from .decode import ObservationContext
 from .episodes import EpisodeSettings, EpisodeTracker
-from .events import EvidenceSequencer, serialize_evidence
+from .evidence import EvidenceSequencer, serialize_evidence
 from .models import Observation
 from .pcap import iter_pcap_observations
 from .pipeline import process_observation

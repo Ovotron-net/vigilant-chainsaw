@@ -1,8 +1,11 @@
 import json
+import logging
+
+import pytest
 
 from ibn_monitor.cli import main
 
-POLICY = {
+V1_POLICY = {
     "version": 1,
     "rules": [
         {
@@ -19,44 +22,41 @@ POLICY = {
 }
 
 
-def write_policy(tmp_path):
+def write_v1_policy(tmp_path):
     path = tmp_path / "policy.json"
-    path.write_text(json.dumps(POLICY), encoding="utf-8")
+    path.write_text(json.dumps(V1_POLICY), encoding="utf-8")
     return str(path)
 
 
-def test_validate_reports_rule_counts(tmp_path, capsys):
-    assert main(["validate", "--config", write_policy(tmp_path)]) == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload == {"valid": True, "version": 1, "enabled_rules": 1, "drop_rules": 1}
-
-
-def test_check_exit_code_2_on_match(tmp_path, capsys):
-    code = main(
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["validate"],
+        ["render-nftables"],
         [
             "check",
-            "--config",
-            write_policy(tmp_path),
             "--source",
             "10.20.5.14",
             "--destination",
             "10.50.10.8",
             "--protocol",
             "tcp",
-            "--destination-port",
-            "5432",
-        ]
-    )
+        ],
+    ],
+    ids=["validate", "render-nftables", "check"],
+)
+def test_v1_policy_is_rejected_with_migration_hint(tmp_path, caplog, extra):
+    command, *rest = extra
+    with caplog.at_level(logging.ERROR):
+        code = main([command, "--config", write_v1_policy(tmp_path), *rest])
     assert code == 2
-    assert json.loads(capsys.readouterr().out)["matched"] is True
+    assert "migrate-policy" in caplog.text
 
 
-def test_check_rejects_invalid_ip_without_traceback(tmp_path):
+def test_check_rejects_invalid_ip_without_traceback():
     code = main(
         [
             "check",
-            "--config",
-            write_policy(tmp_path),
             "--source",
             "not-an-ip",
             "--destination",

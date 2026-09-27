@@ -13,7 +13,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-from .events import serialize_evidence
+from .evidence import serialize_evidence
 from .models import EvidenceEnvelope
 
 logger = logging.getLogger(__name__)

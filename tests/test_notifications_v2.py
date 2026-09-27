@@ -4,7 +4,7 @@ from factories import observation, policy_rule
 
 from ibn_monitor.config import NotificationV2Config
 from ibn_monitor.episodes import EpisodeSettings, EpisodeTracker
-from ibn_monitor.events import EvidenceSequencer
+from ibn_monitor.evidence import EvidenceSequencer
 from ibn_monitor.notifications_v2 import WebhookV2Notifier, build_v2_notifier
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from .config import PolicyV2Config, load_v2_config, runtime_identity_hash
 from .episodes import EpisodeSettings, EpisodeTracker
-from .events import EvidenceSequencer
+from .evidence import EvidenceSequencer
 from .evidence_stub import EvidenceWriter
 from .models import (
     ControlMessage,

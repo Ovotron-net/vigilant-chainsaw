@@ -13,7 +13,7 @@ lint:
 	ruff check .
 
 validate:
-	ibn-monitor validate --config config/policy.json
+	ibn-monitor validate --config config/policy.v2.example.json --strict
 
 check:
 	ibn-monitor check --config config/policy.v2.example.json \
@@ -34,7 +34,7 @@ docker-down:
 	docker compose down
 
 nftables:
-	ibn-monitor render-nftables --config config/policy.json --output build/ibn-monitor.nft
+	ibn-monitor render-nftables --config config/policy.v2.example.json --output build/ibn-monitor.nft
 
 nftables-v2:
 	ibn-monitor render-nftables --config config/policy.v2.example.json --output build/ibn-monitor-v2.nft

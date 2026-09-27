@@ -4,7 +4,7 @@ import pytest
 from factories import observation, policy_rule
 
 from ibn_monitor.episodes import EpisodeSettings, EpisodeTracker
-from ibn_monitor.events import EvidenceSequencer, _serialize_evidence_dict
+from ibn_monitor.evidence import EvidenceSequencer, _serialize_evidence_dict
 
 
 def test_episode_envelope_has_stable_identity_and_wire_shape():
