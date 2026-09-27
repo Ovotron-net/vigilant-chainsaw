@@ -44,9 +44,7 @@ class OperationsServer:
             self._config.bind not in {"127.0.0.1", "::1", "localhost"}
             and not self._config.allow_non_loopback
         ):
-            raise RuntimeError(
-                "operations HTTP bind is non-loopback without allow_non_loopback"
-            )
+            raise RuntimeError("operations HTTP bind is non-loopback without allow_non_loopback")
         provider = self._state_provider
 
         class Handler(BaseHTTPRequestHandler):
@@ -86,16 +84,12 @@ class OperationsServer:
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
                 return
 
-        self._server = ThreadingHTTPServer(
-            (self._config.bind, self._config.port), Handler
-        )
+        self._server = ThreadingHTTPServer((self._config.bind, self._config.port), Handler)
         self._thread = threading.Thread(
             target=self._server.serve_forever, name="ibn-operations", daemon=True
         )
         self._thread.start()
-        logger.info(
-            "Operations listening on %s:%s", self._config.bind, self._config.port
-        )
+        logger.info("Operations listening on %s:%s", self._config.bind, self._config.port)
 
     def stop(self) -> None:
         if self._server is not None:

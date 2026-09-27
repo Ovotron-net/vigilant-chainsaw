@@ -99,9 +99,7 @@ def main() -> int:
         policy_revision=canonical_policy_revision(rules),
         config_revision="",
     )
-    config = replace(
-        provisional, config_revision=canonical_config_revision(provisional)
-    )
+    config = replace(provisional, config_revision=canonical_config_revision(provisional))
 
     evidence = MemoryEvidenceWriter()
     source = MemoryObservationSource("wan")

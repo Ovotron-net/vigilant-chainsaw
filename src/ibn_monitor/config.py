@@ -184,9 +184,7 @@ def _load_schema() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def _load_v2_schema() -> dict[str, Any]:
     schema_text = (
-        resources.files("ibn_monitor")
-        .joinpath("policy-v2.schema.json")
-        .read_text(encoding="utf-8")
+        resources.files("ibn_monitor").joinpath("policy-v2.schema.json").read_text(encoding="utf-8")
     )
     return json.loads(schema_text)
 
@@ -327,15 +325,11 @@ def detect_config_version(path: str | Path) -> int:
 
 def _rule_wire(rule: PolicyRule) -> dict[str, object]:
     ports: str | list[int] = (
-        "any"
-        if rule.match.destination_ports is None
-        else sorted(rule.match.destination_ports)
+        "any" if rule.match.destination_ports is None else sorted(rule.match.destination_ports)
     )
     match: dict[str, object] = {
         "source_cidrs": sorted({str(network) for network in rule.match.source_cidrs}),
-        "destination_cidrs": sorted(
-            {str(network) for network in rule.match.destination_cidrs}
-        ),
+        "destination_cidrs": sorted({str(network) for network in rule.match.destination_cidrs}),
         "protocol": rule.match.protocol,
     }
     if rule.match.protocol in {"tcp", "udp"}:
@@ -351,9 +345,9 @@ def _rule_wire(rule: PolicyRule) -> dict[str, object]:
 
 
 def _sha256(payload: object) -> str:
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -370,9 +364,7 @@ def _config_wire(config: PolicyV2Config) -> dict[str, object]:
         "journal": asdict(config.journal),
         "http": asdict(config.http),
         "notifications": asdict(config.notifications),
-        "rules": [
-            _rule_wire(rule) for rule in sorted(config.rules, key=lambda item: item.id)
-        ],
+        "rules": [_rule_wire(rule) for rule in sorted(config.rules, key=lambda item: item.id)],
     }
 
 
@@ -530,9 +522,7 @@ def validate_v2_config(path: str | Path) -> ConfigValidation:
 
     processing_raw = cast(dict[str, Any], data.get("processing", {}))
     processing = ProcessingV2Config(
-        observation_queue_capacity=int(
-            processing_raw.get("observation_queue_capacity", 10_000)
-        ),
+        observation_queue_capacity=int(processing_raw.get("observation_queue_capacity", 10_000)),
         queue_recovery_cooldown_seconds=float(
             processing_raw.get("queue_recovery_cooldown_seconds", 30.0)
         ),
@@ -586,9 +576,7 @@ def validate_v2_config(path: str | Path) -> ConfigValidation:
     notifications = NotificationV2Config(
         webhook_url_env=notifications_raw.get("webhook_url_env"),
         timeout_seconds=float(notifications_raw.get("timeout_seconds", 3.0)),
-        minimum_severity=_as_severity(
-            str(notifications_raw.get("minimum_severity", "high"))
-        ),
+        minimum_severity=_as_severity(str(notifications_raw.get("minimum_severity", "high"))),
         max_attempts=int(notifications_raw.get("max_attempts", 5)),
         max_elapsed_seconds=float(notifications_raw.get("max_elapsed_seconds", 60.0)),
         shutdown_drain_seconds=float(notifications_raw.get("shutdown_drain_seconds", 5.0)),
@@ -716,8 +704,6 @@ def load_v2_config(path: str | Path, *, strict: bool = False) -> PolicyV2Config:
         selected = errors if errors else warnings
         if not selected and result.config is None:
             selected = list(result.diagnostics)
-        message = "\n".join(
-            f"{item.code} {item.path}: {item.message}" for item in selected
-        )
+        message = "\n".join(f"{item.code} {item.path}: {item.message}" for item in selected)
         raise ConfigError(message)
     return result.config

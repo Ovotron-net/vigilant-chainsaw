@@ -81,12 +81,8 @@ def test_build_live_sources_dispatches(monkeypatch):
         calls.append(("linux", boot_id))
         return ()
 
-    monkeypatch.setattr(
-        "ibn_monitor.capture_windows.build_windows_raw_sources", fake_win
-    )
-    monkeypatch.setattr(
-        "ibn_monitor.capture_afpacket.build_af_packet_sources", fake_linux
-    )
+    monkeypatch.setattr("ibn_monitor.capture_windows.build_windows_raw_sources", fake_win)
+    monkeypatch.setattr("ibn_monitor.capture_afpacket.build_af_packet_sources", fake_linux)
     cfg = v2_config()
     monkeypatch.setattr(capture_live.sys, "platform", "win32")
     capture_live.build_live_sources(cfg, boot_id="b1")
@@ -94,7 +90,6 @@ def test_build_live_sources_dispatches(monkeypatch):
     monkeypatch.setattr(capture_live.sys, "platform", "linux")
     capture_live.build_live_sources(cfg, boot_id="b2")
     assert calls[-1] == ("linux", "b2")
-
 
 
 def test_check_v2_returns_one_for_violation(v2_policy_path, capsys):
@@ -121,9 +116,7 @@ def test_check_v2_returns_one_for_violation(v2_policy_path, capsys):
     assert json.loads(capsys.readouterr().out)["rules"][0]["id"] == "DEV-DB"
 
 
-def test_replay_requires_v2_and_separate_output_paths(
-    v2_policy_path, pcap_path, tmp_path, capsys
-):
+def test_replay_requires_v2_and_separate_output_paths(v2_policy_path, pcap_path, tmp_path, capsys):
     events = tmp_path / "events.jsonl"
     summary = tmp_path / "summary.json"
     assert (

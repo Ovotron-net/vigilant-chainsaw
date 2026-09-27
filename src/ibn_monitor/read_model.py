@@ -16,11 +16,7 @@ from .models import (
 
 
 def rule_to_dict(rule: PolicyRule) -> dict[str, Any]:
-    ports = (
-        "any"
-        if rule.match.destination_ports is None
-        else sorted(rule.match.destination_ports)
-    )
+    ports = "any" if rule.match.destination_ports is None else sorted(rule.match.destination_ports)
     return {
         "id": rule.id,
         "description": rule.description,
@@ -129,9 +125,7 @@ class ReadModel:
         with self._lock:
             self._journal_healthy = healthy
 
-    def set_notifier_stats(
-        self, *, sent: int, failed: int, dropped: int, suppressed: int
-    ) -> None:
+    def set_notifier_stats(self, *, sent: int, failed: int, dropped: int, suppressed: int) -> None:
         with self._lock:
             self._notifier_sent = sent
             self._notifier_failed = failed

@@ -57,10 +57,7 @@ def test_live_monitor_with_memory_source():
         deadline = time.time() + 2
         while time.time() < deadline and not evidence.events:
             time.sleep(0.05)
-        assert any(
-            getattr(event.payload, "phase", None) == "start"
-            for event in evidence.events
-        )
+        assert any(getattr(event.payload, "phase", None) == "start" for event in evidence.events)
     finally:
         monitor.stop()
 

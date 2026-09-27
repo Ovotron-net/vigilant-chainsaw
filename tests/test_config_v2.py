@@ -95,14 +95,16 @@ def test_mirror_requires_promiscuous_capture(tmp_path):
 def test_revisions_ignore_json_order_but_include_description(tmp_path):
     first = valid_v2()
     second = json.loads(json.dumps(first, sort_keys=True))
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision == load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        == load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
     second["rules"][0]["description"] = "changed description"
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision != load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        != load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
 
 def test_revision_normalizes_and_deduplicates_equivalent_cidrs(tmp_path):
@@ -112,9 +114,10 @@ def test_revision_normalizes_and_deduplicates_equivalent_cidrs(tmp_path):
         "10.20.5.14/16",
         "10.20.0.0/16",
     ]
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision == load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        == load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
 
 def test_strict_mode_raises_on_overlap_warning(tmp_path):

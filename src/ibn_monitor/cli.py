@@ -67,9 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate", help="Validate a policy file")
     validate_parser.add_argument("--config", default="config/policy.json")
-    validate_parser.add_argument(
-        "--format", choices=["human", "json"], default="json"
-    )
+    validate_parser.add_argument("--format", choices=["human", "json"], default="json")
     validate_parser.add_argument("--strict", action="store_true")
 
     check_parser = subparsers.add_parser("check", help="Evaluate one synthetic flow")
@@ -79,9 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--protocol", choices=["tcp", "udp", "icmp"], required=True)
     check_parser.add_argument("--source-port", type=int)
     check_parser.add_argument("--destination-port", type=int)
-    check_parser.add_argument(
-        "--format", choices=["human", "json"], default="json"
-    )
+    check_parser.add_argument("--format", choices=["human", "json"], default="json")
 
     nft_parser = subparsers.add_parser(
         "render-nftables", help="Render action=drop rules as an nftables ruleset"
@@ -95,9 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_parser.add_argument("--config", required=True)
     migrate_parser.add_argument("--output", required=True)
     migrate_parser.add_argument("--sensor-id", required=True)
-    migrate_parser.add_argument(
-        "--topology", choices=["gateway", "mirror", "host"], required=True
-    )
+    migrate_parser.add_argument("--topology", choices=["gateway", "mirror", "host"], required=True)
     migrate_parser.add_argument(
         "--capture-point",
         required=True,
@@ -166,9 +160,7 @@ def _validate(args: argparse.Namespace) -> int:
             "valid": True,
             "version": config.version,
             "enabled_rules": sum(rule.enabled for rule in config.rules),
-            "drop_rules": sum(
-                rule.enabled and rule.action == "drop" for rule in config.rules
-            ),
+            "drop_rules": sum(rule.enabled and rule.action == "drop" for rule in config.rules),
         }
         print(json.dumps(payload, indent=2))
         return 0
@@ -178,9 +170,8 @@ def _validate(args: argparse.Namespace) -> int:
     result = validate_v2_config(args.config)
     diagnostics = [item.to_dict() for item in result.diagnostics]
     payload: dict[str, object] = {
-        "valid": result.valid and not (
-            args.strict and any(item.severity == "warning" for item in result.diagnostics)
-        ),
+        "valid": result.valid
+        and not (args.strict and any(item.severity == "warning" for item in result.diagnostics)),
         "version": 2,
         "diagnostics": diagnostics,
     }
@@ -193,9 +184,7 @@ def _validate(args: argparse.Namespace) -> int:
     else:
         _print_diagnostics(result.diagnostics, fmt="human")
         if result.config is not None:
-            print(
-                f"valid={payload['valid']} policy_revision={result.config.policy_revision}"
-            )
+            print(f"valid={payload['valid']} policy_revision={result.config.policy_revision}")
     has_errors = any(item.severity == "error" for item in result.diagnostics)
     has_warnings = any(item.severity == "warning" for item in result.diagnostics)
     if has_errors or (args.strict and has_warnings) or result.config is None:
@@ -248,9 +237,7 @@ def _check(args: argparse.Namespace) -> int:
         observation = _synthetic_observation(args, config.sensor.id)
     except ValueError as exc:
         raise ConfigError(f"Invalid IP address: {exc}") from exc
-    matches = evaluate_policy(
-        compile_policy(config.rules, config.policy_revision), observation
-    )
+    matches = evaluate_policy(compile_policy(config.rules, config.policy_revision), observation)
     payload = {
         "matched": bool(matches),
         "rules": [
@@ -302,9 +289,7 @@ def _migrate(args: argparse.Namespace) -> int:
 
     # Validate candidate before writing.
     candidate = output.with_suffix(output.suffix + ".tmp")
-    candidate.write_text(
-        json.dumps(result.payload, indent=2) + "\n", encoding="utf-8"
-    )
+    candidate.write_text(json.dumps(result.payload, indent=2) + "\n", encoding="utf-8")
     try:
         load_v2_config(candidate)
     except ConfigError:

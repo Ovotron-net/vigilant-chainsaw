@@ -55,9 +55,7 @@ class LiveMonitor:
             config,
             pipeline_config=PipelineConfig(
                 observation_capacity=config.processing.observation_queue_capacity,
-                queue_recovery_cooldown_seconds=(
-                    config.processing.queue_recovery_cooldown_seconds
-                ),
+                queue_recovery_cooldown_seconds=(config.processing.queue_recovery_cooldown_seconds),
                 graceful_drain_seconds=config.processing.graceful_drain_seconds,
                 config_path=config_path,
             ),
@@ -118,9 +116,7 @@ class LiveMonitor:
         self._worker.stop(force=force)
         self._operations.stop()
         self._probe.stop()
-        self._notifier.stop(
-            drain_seconds=self._config.notifications.shutdown_drain_seconds
-        )
+        self._notifier.stop(drain_seconds=self._config.notifications.shutdown_drain_seconds)
         close = getattr(self._evidence, "close", None)
         if callable(close):
             close()

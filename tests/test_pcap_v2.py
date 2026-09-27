@@ -35,20 +35,14 @@ def test_streams_timestamped_observations(endian, nanosecond):
     assert observations[0].captured_at.microsecond == 500_000
     assert observations[0].wire_length == 1500
     packet_start = 24 + 16
-    packet_bytes_read = sum(
-        length for start, length in stream.read_ranges if start >= packet_start
-    )
+    packet_bytes_read = sum(length for start, length in stream.read_ranges if start >= packet_start)
     assert packet_bytes_read == len(frame)
     assert stream.tell() == len(stream.getvalue())
 
 
 def test_rejects_pcapng_before_records():
     with pytest.raises(PcapError, match="PCAPNG is not supported"):
-        list(
-            iter_pcap_stream(
-                BytesIO(b"\x0a\x0d\x0d\x0a" + b"\x00" * 20), context=context()
-            )
-        )
+        list(iter_pcap_stream(BytesIO(b"\x0a\x0d\x0d\x0a" + b"\x00" * 20), context=context()))
 
 
 def test_rejects_unsupported_datalink_before_records():

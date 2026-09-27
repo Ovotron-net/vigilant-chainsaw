@@ -80,9 +80,7 @@ def iter_pcap_stream(
             return
         if len(record_header) != 16:
             raise PcapError("truncated pcap record header")
-        seconds, fraction, incl_len, orig_len = struct.unpack(
-            f"{endian}IIII", record_header
-        )
+        seconds, fraction, incl_len, orig_len = struct.unpack(f"{endian}IIII", record_header)
         if incl_len > snaplen:
             raise PcapError("incl_len exceeds snaplen")
         if orig_len < incl_len:

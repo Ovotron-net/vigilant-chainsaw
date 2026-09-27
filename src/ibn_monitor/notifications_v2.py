@@ -45,9 +45,7 @@ class WebhookV2Notifier:
         self._config = config
         self._url = self._resolve_url()
         self._queue: queue.Queue[EvidenceEnvelope | None] = queue.Queue(maxsize=1000)
-        self._thread = threading.Thread(
-            target=self._worker, name="ibn-webhook-v2", daemon=True
-        )
+        self._thread = threading.Thread(target=self._worker, name="ibn-webhook-v2", daemon=True)
         self._started = False
         self._stop = threading.Event()
         self.sent = 0
@@ -134,9 +132,7 @@ class WebhookV2Notifier:
 
     def _deliver(self, envelope: EvidenceEnvelope) -> None:
         assert self._url is not None
-        body = json.dumps(envelope.to_dict(), separators=(",", ":"), sort_keys=True).encode(
-            "utf-8"
-        )
+        body = json.dumps(envelope.to_dict(), separators=(",", ":"), sort_keys=True).encode("utf-8")
         attempts = 0
         started = time.monotonic()
         delay = 0.2

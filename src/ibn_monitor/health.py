@@ -128,7 +128,7 @@ def _prometheus(snapshot: dict[str, int | float | bool]) -> str:
     lines = [
         "# HELP ibn_monitor_ready Whether the packet monitor is ready.",
         "# TYPE ibn_monitor_ready gauge",
-        f'ibn_monitor_ready {1 if snapshot["ready"] else 0}',
+        f"ibn_monitor_ready {1 if snapshot['ready'] else 0}",
         "# HELP ibn_monitor_uptime_seconds Monitor process uptime.",
         "# TYPE ibn_monitor_uptime_seconds gauge",
         f"ibn_monitor_uptime_seconds {uptime:.3f}",
@@ -153,10 +153,10 @@ def _prometheus(snapshot: dict[str, int | float | bool]) -> str:
     lines.extend(
         [
             "# TYPE ibn_monitor_last_packet_timestamp_seconds gauge",
-            f'ibn_monitor_last_packet_timestamp_seconds {float(snapshot["last_packet_at"]):.3f}',
+            f"ibn_monitor_last_packet_timestamp_seconds {float(snapshot['last_packet_at']):.3f}",
             "# TYPE ibn_monitor_last_violation_timestamp_seconds gauge",
             "ibn_monitor_last_violation_timestamp_seconds "
-            f'{float(snapshot["last_violation_at"]):.3f}',
+            f"{float(snapshot['last_violation_at']):.3f}",
             "",
         ]
     )

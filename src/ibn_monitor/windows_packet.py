@@ -65,9 +65,7 @@ def resolve_bind_ipv4(interface: str) -> str:
             partial.append(adapter)
     chosen = exact or partial
     if not chosen:
-        known = ", ".join(
-            f"{a.friendly_name or a.name}={a.ipv4}" for a in adapters[:12]
-        )
+        known = ", ".join(f"{a.friendly_name or a.name}={a.ipv4}" for a in adapters[:12])
         raise RuntimeError(
             f"interface {interface!r} not found among IPv4 adapters "
             f"(try an IPv4 address or name; known: {known})"
@@ -215,15 +213,11 @@ def _list_adapters_iphlpapi() -> list[AdapterAddress]:
         while unicast:
             sa = unicast.contents.Address
             if sa.iSockaddrLength >= 16 and sa.lpSockaddr:
-                family = ctypes.cast(
-                    sa.lpSockaddr, ctypes.POINTER(ctypes.c_ushort)
-                ).contents.value
+                family = ctypes.cast(sa.lpSockaddr, ctypes.POINTER(ctypes.c_ushort)).contents.value
                 if family == socket.AF_INET:
                     # sockaddr_in: 2 family, 2 port, 4 addr
                     raw = bytes(
-                        ctypes.cast(
-                            sa.lpSockaddr, ctypes.POINTER(ctypes.c_ubyte * 16)
-                        ).contents
+                        ctypes.cast(sa.lpSockaddr, ctypes.POINTER(ctypes.c_ubyte * 16)).contents
                     )
                     ipv4 = socket.inet_ntoa(raw[4:8])
                     if not ipaddress.ip_address(ipv4).is_loopback:

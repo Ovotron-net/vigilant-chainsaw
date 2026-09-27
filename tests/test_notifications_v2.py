@@ -24,17 +24,11 @@ def test_null_notifier_when_env_unset():
 
 def test_progress_events_are_not_eligible(monkeypatch):
     monkeypatch.setenv("WH", "https://example.test/hook")
-    notifier = WebhookV2Notifier(
-        NotificationV2Config(webhook_url_env="WH", minimum_severity="low")
-    )
+    notifier = WebhookV2Notifier(NotificationV2Config(webhook_url_env="WH", minimum_severity="low"))
     tracker = EpisodeTracker(EpisodeSettings(10, 30, 60), id_factory=lambda: "ep")
-    tracker.observe(
-        policy_rule(), observation(), policy_revision="a" * 64, lifecycle_time=0
-    )
+    tracker.observe(policy_rule(), observation(), policy_revision="a" * 64, lifecycle_time=0)
     # Keep episode active and hit progress interval without idle close.
-    tracker.observe(
-        policy_rule(), observation(), policy_revision="a" * 64, lifecycle_time=40
-    )
+    tracker.observe(policy_rule(), observation(), policy_revision="a" * 64, lifecycle_time=40)
     progress = tracker.advance(60)
     assert progress and progress[0].phase == "progress"
     env = EvidenceSequencer("s", "b").wrap_episode(

@@ -50,8 +50,7 @@ class OperationalStateMachine:
         self._app_queue_drops_total = 0
         self._kernel_drops_total = 0
         self._sources = {
-            name: _SourceRuntime(capture_point=name, interface=iface)
-            for name, iface in sources
+            name: _SourceRuntime(capture_point=name, interface=iface) for name, iface in sources
         }
         self._last_kernel_drops: dict[str, int] = {name: 0 for name, _ in sources}
 
@@ -145,8 +144,7 @@ class OperationalStateMachine:
             ):
                 self._state = "degraded"
         elif (
-            all(s.state == "established" for s in self._sources.values())
-            and self._policy_revision
+            all(s.state == "established" for s in self._sources.values()) and self._policy_revision
         ):
             self._state = "ready"
         else:

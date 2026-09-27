@@ -314,6 +314,7 @@ ControlKind = Literal[
     "observation_dropped",
 ]
 
+
 @dataclass(frozen=True, slots=True)
 class ControlMessage:
     kind: ControlKind
@@ -867,13 +868,16 @@ class RuntimeIdentity:
     by a fixed placeholder). Reload compares identity equality, not partial
     field lists in call sites.
     """
+
     version: int
-    sensor: SensorV2Config                 # id, topology, capture_points (name, interface, direction, promiscuous)
-    processing: ProcessingV2Config         # observation_queue_capacity, queue_recovery_cooldown_seconds, graceful_drain_seconds
-    episodes: EpisodeV2Config              # capacity, idle_seconds, progress_seconds, replay_lateness_seconds
-    journal: JournalV2Config               # file, max_bytes, backup_count, fsync_interval_seconds, emergency_*
-    http: HttpV2Config                     # probe + operations listeners
-    notifications: NotificationV2Config   # webhook_url_env, timeouts, severity, attempts, drain, insecure flag
+    sensor: SensorV2Config  # id, topology, capture_points (name, interface, direction, promiscuous)
+    processing: ProcessingV2Config  # observation_queue_capacity, queue_recovery_cooldown_seconds, graceful_drain_seconds
+    episodes: EpisodeV2Config  # capacity, idle_seconds, progress_seconds, replay_lateness_seconds
+    journal: JournalV2Config  # file, max_bytes, backup_count, fsync_interval_seconds, emergency_*
+    http: HttpV2Config  # probe + operations listeners
+    notifications: (
+        NotificationV2Config  # webhook_url_env, timeouts, severity, attempts, drain, insecure flag
+    )
 ```
 
 **Implementation preference (single source of truth):**
@@ -993,6 +997,7 @@ SystemEventName = Literal[
     "coverage_gap",
     "kernel_drops_observed",
 ]
+
 
 @dataclass(frozen=True, slots=True)
 class SystemPayload:

@@ -37,9 +37,7 @@ def test_journal_writes_and_fsyncs(tmp_path):
 def test_journal_rotates_when_max_bytes_exceeded(tmp_path):
     path = tmp_path / "events.jsonl"
     writer = JournalWriter(
-        JournalConfig(
-            file=str(path), max_bytes=200, backup_count=2, fsync_interval_seconds=60
-        )
+        JournalConfig(file=str(path), max_bytes=200, backup_count=2, fsync_interval_seconds=60)
     )
     for index in range(20):
         writer.commit(_start_envelope(boot=f"b{index}"))

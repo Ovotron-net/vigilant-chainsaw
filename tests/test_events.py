@@ -177,10 +177,7 @@ def test_webhook_notifier_dedup_suppresses_within_window(monkeypatch):
 
         notifier.notify(event)  # same flow key within window
         deadline = time.monotonic() + 2.0
-        while (
-            time.monotonic() < deadline
-            and metrics.snapshot()["notifications_suppressed"] < 1
-        ):
+        while time.monotonic() < deadline and metrics.snapshot()["notifications_suppressed"] < 1:
             time.sleep(0.05)
         assert metrics.snapshot()["notifications_suppressed"] == 1
         assert len(calls) == 1

@@ -126,9 +126,7 @@ class WindowsRawSource:
 
     def _new_generation(self) -> str:
         self._generation_counter += 1
-        return (
-            f"{self.capture_point}:{self._config.boot_id}:{self._generation_counter}"
-        )
+        return f"{self.capture_point}:{self._config.boot_id}:{self._generation_counter}"
 
     def _run(self) -> None:
         require_windows()

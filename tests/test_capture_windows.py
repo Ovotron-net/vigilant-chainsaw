@@ -34,16 +34,12 @@ def test_bytes_header_reader_and_dlt_raw_decode():
 
 
 def test_resolve_bind_ipv4_literal(monkeypatch):
-    monkeypatch.setattr(
-        "ibn_monitor.windows_packet.require_windows", lambda: None
-    )
+    monkeypatch.setattr("ibn_monitor.windows_packet.require_windows", lambda: None)
     assert resolve_bind_ipv4("10.0.0.5") == "10.0.0.5"
 
 
 def test_resolve_bind_ipv4_auto(monkeypatch):
-    monkeypatch.setattr(
-        "ibn_monitor.windows_packet.require_windows", lambda: None
-    )
+    monkeypatch.setattr("ibn_monitor.windows_packet.require_windows", lambda: None)
     monkeypatch.setattr(
         "ibn_monitor.windows_packet.list_ipv4_adapters",
         lambda: [
@@ -56,9 +52,7 @@ def test_resolve_bind_ipv4_auto(monkeypatch):
 
 
 def test_resolve_unknown_interface(monkeypatch):
-    monkeypatch.setattr(
-        "ibn_monitor.windows_packet.require_windows", lambda: None
-    )
+    monkeypatch.setattr("ibn_monitor.windows_packet.require_windows", lambda: None)
     monkeypatch.setattr(
         "ibn_monitor.windows_packet.list_ipv4_adapters",
         lambda: [AdapterAddress("{g}", "Ethernet", "192.168.1.10", True)],
@@ -87,15 +81,9 @@ def test_windows_raw_source_requires_admin_or_fails_clean():
 
 
 def test_windows_source_recv_path_with_fake_socket(monkeypatch):
-    monkeypatch.setattr(
-        "ibn_monitor.capture_windows.require_windows", lambda: None
-    )
-    monkeypatch.setattr(
-        "ibn_monitor.capture_windows.resolve_bind_ipv4", lambda _i: "192.168.1.10"
-    )
-    monkeypatch.setattr(
-        "ibn_monitor.capture_windows.sys.platform", "win32", raising=False
-    )
+    monkeypatch.setattr("ibn_monitor.capture_windows.require_windows", lambda: None)
+    monkeypatch.setattr("ibn_monitor.capture_windows.resolve_bind_ipv4", lambda _i: "192.168.1.10")
+    monkeypatch.setattr("ibn_monitor.capture_windows.sys.platform", "win32", raising=False)
 
     packet = ipv4_packet(icmp_header(), protocol=1)
     sock = MagicMock()
@@ -114,9 +102,7 @@ def test_windows_source_recv_path_with_fake_socket(monkeypatch):
     sock.bind = MagicMock()
     sock.close = MagicMock()
 
-    monkeypatch.setattr(
-        "ibn_monitor.capture_windows.socket.socket", lambda *a, **k: sock
-    )
+    monkeypatch.setattr("ibn_monitor.capture_windows.socket.socket", lambda *a, **k: sock)
 
     point = CapturePointConfig(
         name="lan",
@@ -126,9 +112,7 @@ def test_windows_source_recv_path_with_fake_socket(monkeypatch):
     )
     # Bypass platform check in __init__
     src = object.__new__(WindowsRawSource)
-    src._config = WindowsRawSourceConfig(
-        sensor_id="s", capture_point=point, boot_id="b"
-    )
+    src._config = WindowsRawSourceConfig(sensor_id="s", capture_point=point, boot_id="b")
     src._thread = None
     src._stop = __import__("threading").Event()
     src._observation_sink = None

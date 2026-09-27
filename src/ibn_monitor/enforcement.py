@@ -94,15 +94,11 @@ def render_nftables_v2(config: PolicyV2Config) -> str:
                     f"add rule inet ibn_monitor {chain} {expression} "
                     f'limit rate 10/second log prefix "IBN {safe_id} "'
                 )
-                lines.append(
-                    f"add rule inet ibn_monitor {chain} {expression} counter drop"
-                )
+                lines.append(f"add rule inet ibn_monitor {chain} {expression} counter drop")
                 rendered += 1
 
     if rendered == 0:
-        lines.append(
-            "# No enabled rules with enforcement=nftables_drop_candidate were configured."
-        )
+        lines.append("# No enabled rules with enforcement=nftables_drop_candidate were configured.")
     lines.append("")
     return "\n".join(lines)
 
@@ -126,9 +122,7 @@ def _v1_rule_expressions(rule: Rule) -> list[str]:
 
     for version in versions:
         family = "ip" if version == 4 else "ip6"
-        sources = [network for network in rule.source_cidrs if network.version == version] or [
-            None
-        ]
+        sources = [network for network in rule.source_cidrs if network.version == version] or [None]
         destinations = [
             network for network in rule.destination_cidrs if network.version == version
         ] or [None]
@@ -148,9 +142,7 @@ def _v1_rule_expressions(rule: Rule) -> list[str]:
             if port_match is not None:
                 parts.extend([rule.protocol, "dport", port_match])
             elif rule.protocol != "any":
-                protocol = (
-                    "icmpv6" if rule.protocol == "icmp" and version == 6 else rule.protocol
-                )
+                protocol = "icmpv6" if rule.protocol == "icmp" and version == 6 else rule.protocol
                 parts.extend(["meta", "l4proto", protocol])
             expressions.append(" ".join(parts))
 
@@ -178,11 +170,7 @@ def _v2_rule_expressions(rule: PolicyRule) -> list[str]:
             (n for n in match.destination_cidrs if n.version == version),
             key=lambda n: (int(n.network_address), n.prefixlen),
         )
-        ports = (
-            None
-            if match.destination_ports is None
-            else sorted(match.destination_ports)
-        )
+        ports = None if match.destination_ports is None else sorted(match.destination_ports)
         port_match = None
         if ports is not None:
             if len(ports) == 1:

@@ -31,9 +31,7 @@ class AfPacketSourceConfig:
     interface_check_interval_seconds: float = 1.0
 
 
-def build_af_packet_sources(
-    config: PolicyV2Config, *, boot_id: str
-) -> tuple[AfPacketSource, ...]:
+def build_af_packet_sources(config: PolicyV2Config, *, boot_id: str) -> tuple[AfPacketSource, ...]:
     return tuple(
         AfPacketSource(
             AfPacketSourceConfig(
@@ -104,9 +102,7 @@ class AfPacketSource:
 
     def _new_generation(self) -> str:
         self._generation_counter += 1
-        return (
-            f"{self.capture_point}:{self._config.boot_id}:{self._generation_counter}"
-        )
+        return f"{self.capture_point}:{self._config.boot_id}:{self._generation_counter}"
 
     def _run(self) -> None:
         from . import linux_packet as lp

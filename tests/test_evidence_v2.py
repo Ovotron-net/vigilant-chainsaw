@@ -59,9 +59,7 @@ def test_episode_envelope_has_stable_identity_and_wire_shape():
             "observation_count": 1,
             "observed_bytes": 60,
             "late_observation_count": 0,
-            "per_capture_point": {
-                "pcap": {"observations": 1, "observed_bytes": 60}
-            },
+            "per_capture_point": {"pcap": {"observations": 1, "observed_bytes": 60}},
             "truncated": False,
             "close_reason": None,
         },

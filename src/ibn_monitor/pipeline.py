@@ -213,9 +213,7 @@ class PipelineWorker:
             sensor_id=config.sensor.id,
             boot_id=boot_id,
             queue_capacity=pipeline_config.observation_capacity,
-            sources=tuple(
-                (point.name, point.interface) for point in config.sensor.capture_points
-            ),
+            sources=tuple((point.name, point.interface) for point in config.sensor.capture_points),
         )
         self._ops.set_policy(config.policy_revision, config.config_revision)
         self._snapshot = self._ops.snapshot()
@@ -297,9 +295,7 @@ class PipelineWorker:
 
     def _timer_loop(self) -> None:
         while not self._stop.is_set():
-            self._control.put(
-                ControlMessage(kind="timer", monotonic_at=self._clock.monotonic())
-            )
+            self._control.put(ControlMessage(kind="timer", monotonic_at=self._clock.monotonic()))
             self._stop.wait(self._pipeline_config.timer_interval_seconds)
 
     def _run(self) -> None:
@@ -369,9 +365,7 @@ class PipelineWorker:
             now = message.monotonic_at
             for transition in self._tracker.advance(now):
                 self._read_model.note_phase(transition.phase)
-                envelope = self._sequencer.wrap_episode(
-                    transition, emitted_at=datetime.now(UTC)
-                )
+                envelope = self._sequencer.wrap_episode(transition, emitted_at=datetime.now(UTC))
                 self._evidence.commit(envelope)
                 self._read_model.note_envelope(envelope)
                 self._notifier.notify(envelope)
@@ -509,9 +503,7 @@ class PipelineWorker:
         now = self._clock.monotonic()
         for transition in self._tracker.close_all("policy_reload", lifecycle_time=now):
             self._read_model.note_phase(transition.phase)
-            envelope = self._sequencer.wrap_episode(
-                transition, emitted_at=datetime.now(UTC)
-            )
+            envelope = self._sequencer.wrap_episode(transition, emitted_at=datetime.now(UTC))
             self._evidence.commit(envelope)
             self._read_model.note_envelope(envelope)
             self._notifier.notify(envelope)
@@ -542,16 +534,12 @@ class PipelineWorker:
         now = self._clock.monotonic()
         for transition in self._tracker.close_all("shutdown", lifecycle_time=now):
             self._read_model.note_phase(transition.phase)
-            envelope = self._sequencer.wrap_episode(
-                transition, emitted_at=datetime.now(UTC)
-            )
+            envelope = self._sequencer.wrap_episode(transition, emitted_at=datetime.now(UTC))
             self._evidence.commit(envelope)
             self._read_model.note_envelope(envelope)
             self._notifier.notify(envelope)
         self._evidence.flush()
-        self._notifier.stop(
-            drain_seconds=self._config.notifications.shutdown_drain_seconds
-        )
+        self._notifier.stop(drain_seconds=self._config.notifications.shutdown_drain_seconds)
         self._stop.set()
 
     def _commit_system(
