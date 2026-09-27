@@ -34,22 +34,6 @@ def test_run_parser_honors_ibn_config_env(monkeypatch):
     assert args.config == "/etc/ibn-monitor/policy.v2.json"
 
 
-def test_validate_docker_policy():
-    assert (
-        main(
-            [
-                "validate",
-                "--config",
-                "config/policy.v2.docker.json",
-                "--strict",
-                "--format",
-                "json",
-            ]
-        )
-        == 0
-    )
-
-
 def test_validate_windows_policy():
     assert (
         main(

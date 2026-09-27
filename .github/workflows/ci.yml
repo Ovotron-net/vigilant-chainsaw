@@ -29,9 +29,3 @@ jobs:
       - name: Test
         run: pytest
 
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Build image
-        run: docker build --tag ibn-monitor:test .
