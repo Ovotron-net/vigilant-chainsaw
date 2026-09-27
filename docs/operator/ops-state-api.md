@@ -56,7 +56,7 @@ Illustrative full body:
 | `operational` | object | Readiness, revisions, queue, drops, per-source capture status |
 | `totals` | object | Pipeline counters since process start |
 | `rules` | array | Loaded v2 policy rules (projection, not raw config file) |
-| `active_episodes` | array | Up to 100 active episode summaries |
+| `active_episodes` | array | Up to 100 active episode summaries (republished every timer tick, ≤ 250 ms stale) |
 | `active_episodes_truncated` | bool | `true` if more than 100 actives existed at snapshot time |
 | `recent_events` | array | Up to 100 evidence envelopes (ring, oldest → newest) |
 | `recent_events_truncated` | bool | `true` once the recent-events ring has wrapped |

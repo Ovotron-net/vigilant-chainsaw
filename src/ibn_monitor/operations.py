@@ -88,6 +88,11 @@ class OperationsServer:
         self._thread.start()
         logger.info("Operations listening on %s:%s", self._config.bind, self._config.port)
 
+    @property
+    def port(self) -> int | None:
+        """Bound port while serving (useful with ``port=0``); ``None`` when stopped."""
+        return None if self._server is None else int(self._server.server_address[1])
+
     def stop(self) -> None:
         if self._server is not None:
             self._server.shutdown()

@@ -9,7 +9,7 @@ from packet_bytes import ethernet_frame, ipv4_packet, tcp_header
 from pcap_bytes import classic_pcap
 
 from ibn_monitor.capture import MemoryObservationSource
-from ibn_monitor.evidence_stub import MemoryEvidenceWriter
+from ibn_monitor.evidence import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
 from ibn_monitor.processing import EpisodeProcessor, ProcessingCounts
 from ibn_monitor.replay import replay_pcap

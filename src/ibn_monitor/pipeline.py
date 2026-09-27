@@ -9,13 +9,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .config import ConfigSource, PolicyV2Config
-from .evidence_stub import EvidenceWriter
+from .evidence import EvidenceWriter
 from .models import (
     ControlMessage,
     Observation,
     OperationalSnapshot,
 )
-from .notifications_v2 import NullV2Notifier, V2Notifier, WebhookV2Notifier
+from .notifications_v2 import NullV2Notifier, V2Notifier
 from .ops_state import OperationalStateMachine
 from .processing import Envelopes, EpisodeProcessor
 from .read_model import ReadModel
@@ -178,11 +178,8 @@ class PipelineWorker:
             sources=tuple((point.name, point.interface) for point in config.sensor.capture_points),
         )
         self._ops.set_policy(config.policy_revision, config.config_revision)
-        self._snapshot = self._ops.snapshot()
-        self._snapshot_lock = threading.Lock()
         self._read_model = ReadModel()
         self._read_model.set_rules(config.rules)
-        self._read_model.set_ops(self._snapshot)
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._force = False
@@ -191,6 +188,7 @@ class PipelineWorker:
         self._last_app_drop_mono = 0.0
         self._last_kernel_drop_mono = 0.0
         self._timer_thread: threading.Thread | None = None
+        self._publish(episodes=True)
 
     def observation_sink(self, observation: Observation) -> None:
         evicted = self._observations.put_drop_oldest(observation)
@@ -230,30 +228,30 @@ class PipelineWorker:
             self._timer_thread.join(timeout=1)
 
     def snapshot(self) -> OperationalSnapshot:
-        with self._snapshot_lock:
-            return self._snapshot
+        snapshot = self._read_model.ops_snapshot()
+        assert snapshot is not None  # published in __init__
+        return snapshot
 
     def operations_state(self) -> dict[str, object]:
-        return self._read_model.view(active_episodes=self._processor.active_episodes())
+        return self._read_model.view()
 
     def metrics_text(self) -> str:
         return self._read_model.metrics_text()
 
-    def _publish(self) -> None:
+    def _publish(self, *, episodes: bool = False) -> None:
+        """Project worker state for HTTP readers.
+
+        Active episodes are copied only when ``episodes`` is set (timer ticks,
+        reloads, shutdown) so per-Observation publishing stays O(1) in episodes.
+        """
         self._ops.set_queue_depth(self._observations.qsize())
-        snap = self._ops.snapshot()
-        with self._snapshot_lock:
-            self._snapshot = snap
-        self._read_model.set_ops(snap)
-        healthy = getattr(self._evidence, "healthy", True)
-        self._read_model.set_journal_healthy(bool(healthy))
-        if isinstance(self._notifier, WebhookV2Notifier):
-            self._read_model.set_notifier_stats(
-                sent=self._notifier.sent,
-                failed=self._notifier.failed,
-                dropped=self._notifier.dropped,
-                suppressed=self._notifier.suppressed,
-            )
+        self._read_model.publish(
+            ops=self._ops.snapshot(),
+            counts=self._processor.counts(),
+            journal_healthy=self._evidence.healthy,
+            notifier=self._notifier.stats(),
+            active_episodes=self._processor.active_episodes() if episodes else None,
+        )
 
     def _timer_loop(self) -> None:
         while not self._stop.is_set():
@@ -297,7 +295,6 @@ class PipelineWorker:
             self._evidence.commit(envelope)
             self._read_model.note_envelope(envelope)
             self._notifier.notify(envelope)
-        self._read_model.set_counts(self._processor.counts())
 
     def _handle_observation(self, observation: Observation) -> None:
         lifecycle = (
@@ -317,7 +314,7 @@ class PipelineWorker:
             now = message.monotonic_at
             self._emit(self._processor.tick(lifecycle_time=now, emitted_at=datetime.now(UTC)))
             self._maybe_clear_drop_reasons(now)
-            self._publish()
+            self._publish(episodes=True)
             return
         if message.kind == "reload_request":
             self._reload()
@@ -429,6 +426,7 @@ class PipelineWorker:
             new_config = source.load()
         except Exception as exc:
             self._emit(self._processor.reload_failed(str(exc), emitted_at=emitted_at))
+            self._publish()
             return
         before = self._processor.config
         self._emit(
@@ -440,7 +438,7 @@ class PipelineWorker:
         if after is not before:
             self._read_model.set_rules(after.rules)
             self._ops.set_policy(after.policy_revision, after.config_revision)
-        self._publish()
+        self._publish(episodes=True)
 
     def _shutdown(self, *, force: bool) -> None:
         self._ops.mark_shutdown()
@@ -460,6 +458,7 @@ class PipelineWorker:
                 "shutdown", lifecycle_time=self._clock.monotonic(), emitted_at=datetime.now(UTC)
             )
         )
+        self._publish(episodes=True)
         self._evidence.flush()
         self._notifier.stop(
             drain_seconds=self._processor.config.notifications.shutdown_drain_seconds

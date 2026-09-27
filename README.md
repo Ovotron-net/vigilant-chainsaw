@@ -156,13 +156,13 @@ Modules under `src/ibn_monitor/` — no web framework, no ORM:
 | `decode.py` / `pcap.py` / `policy.py` / `episodes.py` | Pure v2 decode, PCAP, match, episode tracking |
 | `processing.py` | `EpisodeProcessor`: Observation/tick/reload/shutdown → sequenced evidence envelopes (no I/O); owns the reload contract |
 | `replay.py` | Offline replay: PCAP watermark ordering around the Episode processor |
-| `pipeline.py` / `ops_state.py` / `read_model.py` | Threaded worker (queues, control lane) around the Episode processor, ops state, atomic operations projection |
+| `pipeline.py` / `ops_state.py` / `read_model.py` | Threaded worker (queues, control lane) around the Episode processor; ops state machine; `ReadModel.publish` — one atomic projection read by probe and ops HTTP |
 | `probe.py` / `operations.py` / `dashboard.py` | Probe `/healthz` `/readyz` `/metrics`; ops `/` + `/api/state`; embedded SPA |
-| `journal.py` / `notifications_v2.py` / `evidence_stub.py` | Durable journal, v2 webhooks, evidence writer seam |
+| `journal.py` / `notifications_v2.py` | Durable journal (`JournalWriter` satisfies `EvidenceWriter`), v2 webhooks (`V2Notifier.stats()`) |
 | `monitor.py` | `LiveMonitor` composition root |
 | `migration.py` / `cli.py` | Sole version 1 reader (v1→v2 migrate); validate/check/replay/run/render-nftables |
 | `enforcement.py` | Topology-aware `render_nftables_v2` (gateway/host; mirror rejected) |
-| `evidence.py` | `EvidenceSequencer` (sole sequence allocator) + canonical `serialize_evidence` |
+| `evidence.py` | `EvidenceSequencer` (sole sequence allocator), canonical `serialize_evidence`, `EvidenceWriter` seam + `MemoryEvidenceWriter` |
 
 See [docs/operator/runbook.md](docs/operator/runbook.md) for operations. Domain vocabulary: [CONTEXT.md](CONTEXT.md). Contributor conventions: [AGENTS.md](AGENTS.md).
 

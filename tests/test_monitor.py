@@ -4,7 +4,7 @@ from factories import observation, v2_config
 
 from ibn_monitor.capture import MemoryObservationSource
 from ibn_monitor.config import ConfigSource
-from ibn_monitor.evidence_stub import MemoryEvidenceWriter
+from ibn_monitor.evidence import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
 
 

@@ -46,3 +46,9 @@ def test_https_url_required(monkeypatch):
     except ValueError:
         raised = True
     assert raised
+
+
+def test_null_notifier_reports_zero_stats():
+    from ibn_monitor.notifications_v2 import NotifierStats, NullV2Notifier
+
+    assert NullV2Notifier().stats() == NotifierStats()

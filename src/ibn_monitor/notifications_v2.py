@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
 
@@ -23,15 +24,27 @@ logger = logging.getLogger(__name__)
 SEVERITY_ORDER = {"low": 10, "medium": 20, "high": 30, "critical": 40}
 
 
+@dataclass(frozen=True, slots=True)
+class NotifierStats:
+    sent: int = 0
+    failed: int = 0
+    dropped: int = 0
+    suppressed: int = 0
+
+
 class V2Notifier(Protocol):
     def start(self) -> None: ...
     def stop(self, *, drain_seconds: float = 5.0) -> None: ...
     def notify(self, envelope: EvidenceEnvelope) -> None: ...
+    def stats(self) -> NotifierStats: ...
 
 
 class NullV2Notifier:
     def start(self) -> None:
         return
+
+    def stats(self) -> NotifierStats:
+        return NotifierStats()
 
     def stop(self, *, drain_seconds: float = 5.0) -> None:
         return
@@ -71,6 +84,11 @@ class WebhookV2Notifier:
         ):
             return url
         raise ValueError("webhook URL must be https (or http loopback with insecure flag)")
+
+    def stats(self) -> NotifierStats:
+        return NotifierStats(
+            sent=self.sent, failed=self.failed, dropped=self.dropped, suppressed=self.suppressed
+        )
 
     def start(self) -> None:
         if not self._url:

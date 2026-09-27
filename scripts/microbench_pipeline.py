@@ -31,7 +31,7 @@ from ibn_monitor.config import (  # noqa: E402
     canonical_policy_revision,
     load_v2_config,
 )
-from ibn_monitor.evidence_stub import MemoryEvidenceWriter  # noqa: E402
+from ibn_monitor.evidence import MemoryEvidenceWriter  # noqa: E402
 from ibn_monitor.models import FieldPresence, Observation, PolicyMatch, PolicyRule  # noqa: E402
 from ibn_monitor.monitor import LiveMonitor  # noqa: E402
 

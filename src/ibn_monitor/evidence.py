@@ -1,10 +1,11 @@
-"""Evidence envelope sequencing and canonical JSONL serialization (schema v2)."""
+"""Evidence envelopes: sequencing, canonical JSONL serialization, and the writer seam."""
 
 from __future__ import annotations
 
 import json
 import re
 from datetime import datetime
+from typing import Protocol
 
 from .models import EpisodeTransition, EvidenceEnvelope, SystemEventName, SystemPayload
 
@@ -114,3 +115,33 @@ def _serialize_evidence_dict(payload: dict[str, object]) -> str:
 
 def serialize_evidence(event: EvidenceEnvelope) -> str:
     return _serialize_evidence_dict(event.to_dict())
+
+
+class EvidenceWriter(Protocol):
+    """Durability seam. Production: ``journal.JournalWriter``; tests: ``MemoryEvidenceWriter``."""
+
+    @property
+    def healthy(self) -> bool: ...
+
+    def commit(self, envelope: EvidenceEnvelope) -> None:
+        """Append an already-sequenced envelope in processing order."""
+        ...
+
+    def flush(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class MemoryEvidenceWriter:
+    def __init__(self) -> None:
+        self.events: list[EvidenceEnvelope] = []
+        self.healthy = True
+
+    def commit(self, envelope: EvidenceEnvelope) -> None:
+        self.events.append(envelope)
+
+    def flush(self) -> None:
+        return
+
+    def close(self) -> None:
+        return
