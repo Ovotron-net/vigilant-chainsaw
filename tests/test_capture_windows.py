@@ -33,6 +33,7 @@ def test_resolve_bind_ipv4_literal(monkeypatch):
 
 def test_resolve_bind_ipv4_auto(monkeypatch):
     monkeypatch.setattr("ibn_monitor.windows_packet.require_windows", lambda: None)
+    monkeypatch.setattr("ibn_monitor.windows_packet.default_route_ipv4", lambda: None)
     monkeypatch.setattr(
         "ibn_monitor.windows_packet.list_ipv4_adapters",
         lambda: [
@@ -42,6 +43,38 @@ def test_resolve_bind_ipv4_auto(monkeypatch):
     )
     assert resolve_bind_ipv4("auto") == "192.168.1.10"
     assert resolve_bind_ipv4("Ethernet") == "192.168.1.10"
+
+
+ADAPTERS = [
+    AdapterAddress("{ts}", "Tailscale", "169.254.83.107", True),
+    AdapterAddress("{eth}", "Ethernet 3", "192.168.50.117", True),
+    AdapterAddress("{wifi}", "Wi-Fi", "192.168.50.181", True),
+]
+
+
+@pytest.mark.parametrize(
+    ("default_route", "expected"),
+    [
+        ("192.168.50.181", "192.168.50.181"),  # follows the default route
+        (None, "192.168.50.117"),  # no route: first routable, never link-local
+        ("10.9.9.9", "192.168.50.117"),  # route via an unknown/down adapter is ignored
+    ],
+)
+def test_resolve_auto_prefers_default_route_and_skips_link_local(
+    monkeypatch, default_route, expected
+):
+    monkeypatch.setattr("ibn_monitor.windows_packet.require_windows", lambda: None)
+    monkeypatch.setattr("ibn_monitor.windows_packet.list_ipv4_adapters", lambda: ADAPTERS)
+    monkeypatch.setattr("ibn_monitor.windows_packet.default_route_ipv4", lambda: default_route)
+    assert resolve_bind_ipv4("auto") == expected
+
+
+def test_resolve_auto_rejects_only_link_local(monkeypatch):
+    monkeypatch.setattr("ibn_monitor.windows_packet.require_windows", lambda: None)
+    monkeypatch.setattr("ibn_monitor.windows_packet.list_ipv4_adapters", lambda: ADAPTERS[:1])
+    monkeypatch.setattr("ibn_monitor.windows_packet.default_route_ipv4", lambda: None)
+    with pytest.raises(RuntimeError, match="routable"):
+        resolve_bind_ipv4("auto")
 
 
 def test_resolve_unknown_interface(monkeypatch):

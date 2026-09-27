@@ -30,7 +30,8 @@ def resolve_bind_ipv4(interface: str) -> str:
     Accepts:
     - dotted IPv4 literal
     - adapter name / friendly name (case-insensitive substring or exact)
-    - ``auto`` / ``*`` / empty → first up non-loopback IPv4
+    - ``auto`` / ``*`` / empty → the adapter carrying the default route, else the
+      first up adapter with a routable (non-loopback, non-link-local) IPv4
     """
     require_windows()
     text = (interface or "").strip()
@@ -49,10 +50,18 @@ def resolve_bind_ipv4(interface: str) -> str:
         raise RuntimeError("no IPv4 adapters found")
 
     if not text or text in {"auto", "*"}:
-        for adapter in adapters:
-            if adapter.is_up and not ipaddress.ip_address(adapter.ipv4).is_loopback:
-                return adapter.ipv4
-        raise RuntimeError("no up non-loopback IPv4 adapter found")
+        routable = [
+            adapter.ipv4
+            for adapter in adapters
+            if adapter.is_up and _is_routable_ipv4(adapter.ipv4)
+        ]
+        # Link-local (169.254/16) addresses, e.g. an idle VPN adapter, carry no traffic.
+        default = default_route_ipv4()
+        if default in routable:
+            return default
+        if routable:
+            return routable[0]
+        raise RuntimeError("no up adapter with a routable IPv4 address found")
 
     needle = text.casefold()
     exact: list[AdapterAddress] = []
@@ -74,6 +83,23 @@ def resolve_bind_ipv4(interface: str) -> str:
         if adapter.is_up:
             return adapter.ipv4
     return chosen[0].ipv4
+
+
+def _is_routable_ipv4(value: str) -> bool:
+    address = ipaddress.ip_address(value)
+    return not (address.is_loopback or address.is_link_local or address.is_unspecified)
+
+
+def default_route_ipv4() -> str | None:
+    """Local IPv4 the OS would use for off-host traffic (UDP connect sends nothing)."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 9))  # TEST-NET-1; only consults the routing table
+        return str(probe.getsockname()[0])
+    except OSError:
+        return None
+    finally:
+        probe.close()
 
 
 def list_ipv4_adapters() -> list[AdapterAddress]:
