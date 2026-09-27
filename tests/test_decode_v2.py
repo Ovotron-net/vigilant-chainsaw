@@ -165,9 +165,7 @@ def struct_pack_tcp_bad_offset():
             "ipv6_jumbogram_unsupported",
         ),
         (
-            ethernet_frame(
-                b"\x00" * 14, ethertype=0x0800, vlan_types=(0x8100, 0x8100, 0x8100)
-            ),
+            ethernet_frame(b"\x00" * 14, ethertype=0x0800, vlan_types=(0x8100, 0x8100, 0x8100)),
             ETHERNET,
             "vlan_depth_limit",
         ),

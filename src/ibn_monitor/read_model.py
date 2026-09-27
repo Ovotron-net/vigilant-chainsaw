@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from threading import Lock
 from typing import Any
 
@@ -13,14 +13,12 @@ from .models import (
     OperationalSnapshot,
     PolicyRule,
 )
+from .notifications_v2 import NotifierStats
+from .processing import ProcessingCounts
 
 
 def rule_to_dict(rule: PolicyRule) -> dict[str, Any]:
-    ports = (
-        "any"
-        if rule.match.destination_ports is None
-        else sorted(rule.match.destination_ports)
-    )
+    ports = "any" if rule.match.destination_ports is None else sorted(rule.match.destination_ports)
     return {
         "id": rule.id,
         "description": rule.description,
@@ -57,67 +55,48 @@ def episode_summary(transition: EpisodeTransition) -> dict[str, Any]:
 
 
 @dataclass
-class PipelineCounters:
-    observations: int = 0
-    complete: int = 0
-    partial: int = 0
-    undecodable: int = 0
-    matched_observations: int = 0
-    rule_matches: int = 0
-    episodes_started: int = 0
-    episodes_progressed: int = 0
-    episodes_closed: int = 0
-
-
-@dataclass
 class ReadModel:
-    """Thread-safe projection updated only by the processing worker."""
+    """Thread-safe projection. The worker writes; probe and ops HTTP threads only read.
+
+    ``publish`` replaces every derived field in one locked step, so readers never
+    see counts from one moment and operational state from another.
+    """
 
     recent_maxlen: int = 100
     _lock: Lock = field(default_factory=Lock, repr=False)
     _ops: OperationalSnapshot | None = None
     _rules: tuple[PolicyRule, ...] = ()
-    _counters: PipelineCounters = field(default_factory=PipelineCounters)
+    _counters: ProcessingCounts = field(default_factory=ProcessingCounts)
+    _active_episodes: tuple[EpisodeTransition, ...] = ()
     _recent_events: deque[dict[str, object]] = field(default_factory=lambda: deque(maxlen=100))
     _events_truncated: bool = False
     _journal_healthy: bool = True
-    _notifier_sent: int = 0
-    _notifier_failed: int = 0
-    _notifier_dropped: int = 0
-    _notifier_suppressed: int = 0
+    _notifier: NotifierStats = field(default_factory=NotifierStats)
 
     def __post_init__(self) -> None:
         self._recent_events = deque(maxlen=self.recent_maxlen)
 
-    def set_ops(self, snapshot: OperationalSnapshot) -> None:
+    def publish(
+        self,
+        *,
+        ops: OperationalSnapshot,
+        counts: ProcessingCounts,
+        journal_healthy: bool,
+        notifier: NotifierStats,
+        active_episodes: tuple[EpisodeTransition, ...] | None = None,
+    ) -> None:
+        """Replace derived state; ``active_episodes=None`` keeps the last published set."""
         with self._lock:
-            self._ops = snapshot
+            self._ops = ops
+            self._counters = counts
+            self._journal_healthy = journal_healthy
+            self._notifier = notifier
+            if active_episodes is not None:
+                self._active_episodes = active_episodes
 
     def set_rules(self, rules: tuple[PolicyRule, ...]) -> None:
         with self._lock:
             self._rules = rules
-
-    def note_observation(self, outcome: str, *, matched: bool, rule_matches: int) -> None:
-        with self._lock:
-            self._counters.observations += 1
-            if outcome == "complete":
-                self._counters.complete += 1
-            elif outcome == "partial":
-                self._counters.partial += 1
-            else:
-                self._counters.undecodable += 1
-            if matched:
-                self._counters.matched_observations += 1
-            self._counters.rule_matches += rule_matches
-
-    def note_phase(self, phase: str) -> None:
-        with self._lock:
-            if phase == "start":
-                self._counters.episodes_started += 1
-            elif phase == "progress":
-                self._counters.episodes_progressed += 1
-            elif phase == "close":
-                self._counters.episodes_closed += 1
 
     def note_envelope(self, envelope: EvidenceEnvelope) -> None:
         with self._lock:
@@ -125,37 +104,20 @@ class ReadModel:
                 self._events_truncated = True
             self._recent_events.append(envelope.to_dict())
 
-    def set_journal_healthy(self, healthy: bool) -> None:
+    def ops_snapshot(self) -> OperationalSnapshot | None:
         with self._lock:
-            self._journal_healthy = healthy
+            return self._ops
 
-    def set_notifier_stats(
-        self, *, sent: int, failed: int, dropped: int, suppressed: int
-    ) -> None:
-        with self._lock:
-            self._notifier_sent = sent
-            self._notifier_failed = failed
-            self._notifier_dropped = dropped
-            self._notifier_suppressed = suppressed
-
-    def view(
-        self,
-        *,
-        active_episodes: tuple[EpisodeTransition, ...],
-    ) -> dict[str, object]:
+    def view(self) -> dict[str, object]:
         with self._lock:
             ops = self._ops
             rules = self._rules
             counters = self._counters
+            active_episodes = self._active_episodes
             recent = list(self._recent_events)
             events_truncated = self._events_truncated
             journal_healthy = self._journal_healthy
-            notifier = {
-                "sent": self._notifier_sent,
-                "failed": self._notifier_failed,
-                "dropped": self._notifier_dropped,
-                "suppressed": self._notifier_suppressed,
-            }
+            notifier = asdict(self._notifier)
 
         episodes = [episode_summary(item) for item in active_episodes[:100]]
         episodes_truncated = len(active_episodes) > 100
@@ -210,9 +172,7 @@ class ReadModel:
             ops = self._ops
             counters = self._counters
             journal_healthy = self._journal_healthy
-            notifier_sent = self._notifier_sent
-            notifier_failed = self._notifier_failed
-            notifier_dropped = self._notifier_dropped
+            notifier_stats = self._notifier
 
         ready = 1 if ops and ops.ready else 0
         lines = [
@@ -248,13 +208,13 @@ class ReadModel:
             f"ibn_monitor_journal_healthy {1 if journal_healthy else 0}",
             "# HELP ibn_monitor_webhook_sent_total Webhook deliveries.",
             "# TYPE ibn_monitor_webhook_sent_total counter",
-            f"ibn_monitor_webhook_sent_total {notifier_sent}",
+            f"ibn_monitor_webhook_sent_total {notifier_stats.sent}",
             "# HELP ibn_monitor_webhook_failed_total Webhook failures.",
             "# TYPE ibn_monitor_webhook_failed_total counter",
-            f"ibn_monitor_webhook_failed_total {notifier_failed}",
+            f"ibn_monitor_webhook_failed_total {notifier_stats.failed}",
             "# HELP ibn_monitor_webhook_dropped_total Webhook queue drops.",
             "# TYPE ibn_monitor_webhook_dropped_total counter",
-            f"ibn_monitor_webhook_dropped_total {notifier_dropped}",
+            f"ibn_monitor_webhook_dropped_total {notifier_stats.dropped}",
             "",
         ]
         if ops:

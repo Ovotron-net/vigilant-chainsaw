@@ -8,9 +8,7 @@ from ibn_monitor.replay import replay_pcap
 
 
 def record(seconds, destination_port=5432):
-    frame = ethernet_frame(
-        ipv4_packet(tcp_header(destination_port=destination_port), protocol=6)
-    )
+    frame = ethernet_frame(ipv4_packet(tcp_header(destination_port=destination_port), protocol=6))
     return (seconds, 0, frame, len(frame))
 
 

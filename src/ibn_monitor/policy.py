@@ -31,18 +31,14 @@ def compile_policy(rules: tuple[PolicyRule, ...], revision: str) -> CompiledPoli
         if not rule.enabled:
             continue
         source_versions = {network.version for network in rule.match.source_cidrs}
-        destination_versions = {
-            network.version for network in rule.match.destination_cidrs
-        }
+        destination_versions = {network.version for network in rule.match.destination_cidrs}
         for version in sorted(source_versions & destination_versions):
             predicates.append(
                 CompiledPredicate(
                     rule=rule,
                     ip_version=version,
                     source_cidrs=tuple(
-                        network
-                        for network in rule.match.source_cidrs
-                        if network.version == version
+                        network for network in rule.match.source_cidrs if network.version == version
                     ),
                     destination_cidrs=tuple(
                         network
@@ -78,9 +74,7 @@ def evaluate_policy(
             continue
         if not any(observation.source in network for network in predicate.source_cidrs):
             continue
-        if not any(
-            observation.destination in network for network in predicate.destination_cidrs
-        ):
+        if not any(observation.destination in network for network in predicate.destination_cidrs):
             continue
         if rule.match.protocol != "any" and observation.protocol != rule.match.protocol:
             continue
@@ -91,9 +85,7 @@ def evaluate_policy(
     return tuple(matches)
 
 
-def _ports_intersect(
-    left: frozenset[int] | None, right: frozenset[int] | None
-) -> bool:
+def _ports_intersect(left: frozenset[int] | None, right: frozenset[int] | None) -> bool:
     if left is None or right is None:
         return True
     return bool(left & right)
@@ -116,9 +108,7 @@ def find_overlaps(rules: tuple[PolicyRule, ...]) -> tuple[tuple[str, str], ...]:
         for right in enabled[index + 1 :]:
             if not _networks_overlap(left.match.source_cidrs, right.match.source_cidrs):
                 continue
-            if not _networks_overlap(
-                left.match.destination_cidrs, right.match.destination_cidrs
-            ):
+            if not _networks_overlap(left.match.destination_cidrs, right.match.destination_cidrs):
                 continue
             protocols_ok = (
                 left.match.protocol == right.match.protocol
@@ -127,9 +117,7 @@ def find_overlaps(rules: tuple[PolicyRule, ...]) -> tuple[tuple[str, str], ...]:
             )
             if not protocols_ok:
                 continue
-            if not _ports_intersect(
-                left.match.destination_ports, right.match.destination_ports
-            ):
+            if not _ports_intersect(left.match.destination_ports, right.match.destination_ports):
                 continue
             pair = tuple(sorted((left.id, right.id)))
             pairs.append((pair[0], pair[1]))

@@ -85,6 +85,4 @@ def test_rejects_non_default_bpf_filter():
     }
     result = migrate_v1_policy(raw, request())
     assert result.payload is None
-    assert [item.code for item in result.diagnostics] == [
-        "migration.unsupported_bpf_filter"
-    ]
+    assert [item.code for item in result.diagnostics] == ["migration.unsupported_bpf_filter"]

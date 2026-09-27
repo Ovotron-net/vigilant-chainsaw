@@ -78,8 +78,7 @@ class _EpisodeState:
             observed_bytes=self.observed_bytes,
             late_observation_count=self.late_observation_count,
             per_capture_point=tuple(
-                (name, counts[0], counts[1])
-                for name, counts in sorted(self.per_point.items())
+                (name, counts[0], counts[1]) for name, counts in sorted(self.per_point.items())
             ),
             truncated=truncated,
             close_reason=close_reason,
@@ -163,9 +162,7 @@ class EpisodeTracker:
         for key, state in list(self._states.items()):
             idle_age = now - state.last_lifecycle_time
             if idle_age >= self._settings.idle_seconds:
-                emitted.append(
-                    state.transition("close", now, close_reason="idle")
-                )
+                emitted.append(state.transition("close", now, close_reason="idle"))
                 to_close.append(key)
                 continue
             if now - state.last_progress_time >= self._settings.progress_seconds:

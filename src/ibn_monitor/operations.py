@@ -8,7 +8,7 @@ import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .config import ListenerV2Config
+from .config import ListenerV2Config, is_loopback_host
 from .dashboard import DASHBOARD_HTML
 
 logger = logging.getLogger(__name__)
@@ -40,13 +40,8 @@ class OperationsServer:
     def start(self) -> None:
         if not self._config.enabled:
             return
-        if (
-            self._config.bind not in {"127.0.0.1", "::1", "localhost"}
-            and not self._config.allow_non_loopback
-        ):
-            raise RuntimeError(
-                "operations HTTP bind is non-loopback without allow_non_loopback"
-            )
+        if not is_loopback_host(self._config.bind) and not self._config.allow_non_loopback:
+            raise RuntimeError("operations HTTP bind is non-loopback without allow_non_loopback")
         provider = self._state_provider
 
         class Handler(BaseHTTPRequestHandler):
@@ -86,16 +81,17 @@ class OperationsServer:
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
                 return
 
-        self._server = ThreadingHTTPServer(
-            (self._config.bind, self._config.port), Handler
-        )
+        self._server = ThreadingHTTPServer((self._config.bind, self._config.port), Handler)
         self._thread = threading.Thread(
             target=self._server.serve_forever, name="ibn-operations", daemon=True
         )
         self._thread.start()
-        logger.info(
-            "Operations listening on %s:%s", self._config.bind, self._config.port
-        )
+        logger.info("Operations listening on %s:%s", self._config.bind, self._config.port)
+
+    @property
+    def port(self) -> int | None:
+        """Bound port while serving (useful with ``port=0``); ``None`` when stopped."""
+        return None if self._server is None else int(self._server.server_address[1])
 
     def stop(self) -> None:
         if self._server is not None:

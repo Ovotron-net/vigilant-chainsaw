@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import MISSING, asdict, dataclass, fields, replace
 from functools import lru_cache
 from importlib import resources
 from ipaddress import ip_address, ip_network
@@ -12,15 +12,12 @@ from typing import Any, Literal, cast
 import jsonschema
 
 from .models import (
-    Action,
     Diagnostic,
     EnforcementDisposition,
     Network,
     PolicyMatch,
     PolicyProtocol,
     PolicyRule,
-    Protocol,
-    Rule,
     Severity,
 )
 
@@ -36,45 +33,6 @@ _DIRECTION_DEFAULT: dict[Topology, CaptureDirection] = {
 
 class ConfigError(ValueError):
     """Raised when the monitor configuration is invalid."""
-
-
-@dataclass(frozen=True, slots=True)
-class SensorConfig:
-    interface: str | None
-    bpf_filter: str
-    promiscuous: bool
-
-
-@dataclass(frozen=True, slots=True)
-class LoggingConfig:
-    file: str
-    max_bytes: int
-    backup_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class HealthConfig:
-    enabled: bool
-    bind: str
-    port: int
-
-
-@dataclass(frozen=True, slots=True)
-class NotificationConfig:
-    webhook_url_env: str | None
-    timeout_seconds: float
-    minimum_severity: str
-    deduplication_seconds: int
-
-
-@dataclass(frozen=True, slots=True)
-class AppConfig:
-    version: int
-    sensor: SensorConfig
-    logging: LoggingConfig
-    health: HealthConfig
-    notifications: NotificationConfig
-    rules: tuple[Rule, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,16 +77,20 @@ class JournalV2Config:
 
 @dataclass(frozen=True, slots=True)
 class ListenerV2Config:
-    enabled: bool
-    bind: str
     port: int
+    enabled: bool = True
+    bind: str = "127.0.0.1"
     allow_non_loopback: bool = False
+
+
+PROBE_PORT = 9108
+OPERATIONS_PORT = 9109
 
 
 @dataclass(frozen=True, slots=True)
 class HttpV2Config:
-    probe: ListenerV2Config
-    operations: ListenerV2Config
+    probe: ListenerV2Config = ListenerV2Config(port=PROBE_PORT)
+    operations: ListenerV2Config = ListenerV2Config(port=OPERATIONS_PORT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,36 +130,24 @@ class ConfigValidation:
         )
 
 
-_PROTOCOLS: frozenset[str] = frozenset({"any", "tcp", "udp", "icmp"})
-_SEVERITIES: frozenset[str] = frozenset({"low", "medium", "high", "critical"})
-_ACTIONS: frozenset[str] = frozenset({"alert", "drop"})
-
-
-@lru_cache(maxsize=1)
-def _load_schema() -> dict[str, Any]:
-    schema_text = (
-        resources.files("ibn_monitor").joinpath("policy.schema.json").read_text(encoding="utf-8")
-    )
-    return json.loads(schema_text)
+def is_loopback_host(host: str | None) -> bool:
+    """True for ``localhost`` and any loopback IP literal (brackets allowed)."""
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return bool(ip_address(host.strip("[]")).is_loopback)
+    except ValueError:
+        return False
 
 
 @lru_cache(maxsize=1)
 def _load_v2_schema() -> dict[str, Any]:
     schema_text = (
-        resources.files("ibn_monitor")
-        .joinpath("policy-v2.schema.json")
-        .read_text(encoding="utf-8")
+        resources.files("ibn_monitor").joinpath("policy-v2.schema.json").read_text(encoding="utf-8")
     )
     return json.loads(schema_text)
-
-
-def _validate_schema(raw: Any) -> None:
-    validator = jsonschema.Draft202012Validator(_load_schema())
-    errors = sorted(validator.iter_errors(raw), key=lambda error: list(error.absolute_path))
-    if errors:
-        error = errors[0]
-        location = "/".join(str(part) for part in error.absolute_path) or "root"
-        raise ConfigError(f"Policy does not match schema at {location}: {error.message}")
 
 
 def _read_json(path: str | Path) -> Any:
@@ -208,111 +158,6 @@ def _read_json(path: str | Path) -> Any:
         raise ConfigError(f"Configuration file not found: {config_path}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Invalid JSON in {config_path}: {exc}") from exc
-
-
-def _as_protocol(value: str) -> Protocol:
-    normalized = value.lower()
-    if normalized not in _PROTOCOLS:
-        raise ConfigError(f"protocol is invalid: {value}")
-    return cast(Protocol, normalized)
-
-
-def _as_severity(value: str) -> Severity:
-    normalized = value.lower()
-    if normalized not in _SEVERITIES:
-        raise ConfigError(f"severity is invalid: {value}")
-    return cast(Severity, normalized)
-
-
-def _as_action(value: str) -> Action:
-    normalized = value.lower()
-    if normalized not in _ACTIONS:
-        raise ConfigError(f"action is invalid: {value}")
-    return cast(Action, normalized)
-
-
-def _sensor(data: dict[str, Any]) -> SensorConfig:
-    return SensorConfig(
-        interface=data.get("interface"),
-        bpf_filter=data.get("bpf_filter", "ip or ip6"),
-        promiscuous=data.get("promiscuous", False),
-    )
-
-
-def _logging(data: dict[str, Any]) -> LoggingConfig:
-    return LoggingConfig(
-        file=data.get("file", "events.jsonl"),
-        max_bytes=data.get("max_bytes", 10_485_760),
-        backup_count=data.get("backup_count", 5),
-    )
-
-
-def _health(data: dict[str, Any]) -> HealthConfig:
-    return HealthConfig(
-        enabled=data.get("enabled", True),
-        bind=data.get("bind", "127.0.0.1"),
-        port=data.get("port", 9108),
-    )
-
-
-def _notifications(data: dict[str, Any]) -> NotificationConfig:
-    return NotificationConfig(
-        webhook_url_env=data.get("webhook_url_env"),
-        timeout_seconds=float(data.get("timeout_seconds", 3)),
-        minimum_severity=str(data.get("minimum_severity", "high")).lower(),
-        deduplication_seconds=int(data.get("deduplication_seconds", 60)),
-    )
-
-
-def _rule(data: dict[str, Any], index: int) -> Rule:
-    rule_id = data["id"]
-    description = data.get("description", rule_id)
-    enabled = data.get("enabled", True)
-
-    source_values = data.get("source_cidrs", [])
-    destination_values = data.get("destination_cidrs", [])
-    try:
-        source_cidrs = tuple(ip_network(item, strict=False) for item in source_values)
-        destination_cidrs = tuple(ip_network(item, strict=False) for item in destination_values)
-    except ValueError as exc:
-        raise ConfigError(f"rules[{index}] contains an invalid CIDR: {exc}") from exc
-
-    return Rule(
-        id=rule_id,
-        description=description,
-        enabled=enabled,
-        source_cidrs=source_cidrs,
-        destination_cidrs=destination_cidrs,
-        protocol=_as_protocol(data.get("protocol", "any")),
-        destination_ports=frozenset(data.get("destination_ports", [])),
-        severity=_as_severity(data.get("severity", "high")),
-        action=_as_action(data.get("action", "alert")),
-    )
-
-
-def _rules(rules_value: list[Any]) -> tuple[Rule, ...]:
-    rules = tuple(
-        _rule(cast(dict[str, Any], value), index) for index, value in enumerate(rules_value)
-    )
-    identifiers = [rule.id for rule in rules]
-    if len(identifiers) != len(set(identifiers)):
-        raise ConfigError("Rule IDs must be unique")
-    return rules
-
-
-def load_config(path: str | Path) -> AppConfig:
-    raw = _read_json(path)
-    _validate_schema(raw)
-    data = cast(dict[str, Any], raw)
-
-    return AppConfig(
-        version=1,
-        sensor=_sensor(cast(dict[str, Any], data.get("sensor", {}))),
-        logging=_logging(cast(dict[str, Any], data.get("logging", {}))),
-        health=_health(cast(dict[str, Any], data.get("health", {}))),
-        notifications=_notifications(cast(dict[str, Any], data.get("notifications", {}))),
-        rules=_rules(cast(list[Any], data["rules"])),
-    )
 
 
 def detect_config_version(path: str | Path) -> int:
@@ -327,15 +172,11 @@ def detect_config_version(path: str | Path) -> int:
 
 def _rule_wire(rule: PolicyRule) -> dict[str, object]:
     ports: str | list[int] = (
-        "any"
-        if rule.match.destination_ports is None
-        else sorted(rule.match.destination_ports)
+        "any" if rule.match.destination_ports is None else sorted(rule.match.destination_ports)
     )
     match: dict[str, object] = {
         "source_cidrs": sorted({str(network) for network in rule.match.source_cidrs}),
-        "destination_cidrs": sorted(
-            {str(network) for network in rule.match.destination_cidrs}
-        ),
+        "destination_cidrs": sorted({str(network) for network in rule.match.destination_cidrs}),
         "protocol": rule.match.protocol,
     }
     if rule.match.protocol in {"tcp", "udp"}:
@@ -351,9 +192,9 @@ def _rule_wire(rule: PolicyRule) -> dict[str, object]:
 
 
 def _sha256(payload: object) -> str:
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -370,9 +211,7 @@ def _config_wire(config: PolicyV2Config) -> dict[str, object]:
         "journal": asdict(config.journal),
         "http": asdict(config.http),
         "notifications": asdict(config.notifications),
-        "rules": [
-            _rule_wire(rule) for rule in sorted(config.rules, key=lambda item: item.id)
-        ],
+        "rules": [_rule_wire(rule) for rule in sorted(config.rules, key=lambda item: item.id)],
     }
 
 
@@ -437,32 +276,28 @@ def _parse_destination_ports(
     return frozenset(int(port) for port in cast(list[Any], ports))
 
 
-def _is_loopback_bind(value: str) -> bool:
-    try:
-        return bool(ip_address(value).is_loopback)
-    except ValueError:
-        return False
+def _section(cls: type, raw: object, **defaults: object):
+    """Build a config dataclass from a schema-validated JSON object.
+
+    Missing keys take the dataclass default (or ``defaults``). Present values are
+    coerced to the default's type so JSON integers become floats where declared.
+    """
+    data = {**defaults, **cast(dict[str, Any], raw or {})}
+    kwargs: dict[str, object] = {}
+    for field in fields(cls):
+        if field.name not in data:
+            continue
+        value = data[field.name]
+        default = defaults.get(field.name, field.default)
+        if default is not MISSING and default is not None and value is not None:
+            value = type(default)(value)
+        kwargs[field.name] = value
+    return cls(**kwargs)
 
 
-def validate_v2_config(path: str | Path) -> ConfigValidation:
+def _schema_diagnostics(raw: object) -> list[Diagnostic]:
+    validator = jsonschema.Draft202012Validator(_load_v2_schema())
     diagnostics: list[Diagnostic] = []
-    raw = _read_json(path)
-    if not isinstance(raw, dict):
-        return ConfigValidation(
-            None,
-            (
-                Diagnostic(
-                    "error",
-                    "schema.invalid",
-                    "/",
-                    "root must be an object",
-                ),
-            ),
-        )
-
-    schema = _load_v2_schema()
-    jsonschema.Draft202012Validator.check_schema(schema)
-    validator = jsonschema.Draft202012Validator(schema)
     for error in sorted(validator.iter_errors(raw), key=lambda item: list(item.absolute_path)):
         parts = [str(part) for part in error.absolute_path]
         if error.validator == "required":
@@ -473,31 +308,18 @@ def validate_v2_config(path: str | Path) -> ConfigValidation:
             )
             if missing is not None:
                 parts.append(str(missing))
-        path = "/" + "/".join(parts) if parts else "/"
         diagnostics.append(
-            Diagnostic(
-                severity="error",
-                code="schema.invalid",
-                path=path,
-                message=error.message,
-            )
+            Diagnostic("error", "schema.invalid", "/" + "/".join(parts), error.message)
         )
-    if any(item.severity == "error" for item in diagnostics):
-        return ConfigValidation(None, tuple(diagnostics))
+    return diagnostics
 
-    data = cast(dict[str, Any], raw)
-    sensor_raw = cast(dict[str, Any], data["sensor"])
-    topology = cast(Topology, sensor_raw["topology"])
+
+def _sensor(raw: dict[str, Any], diagnostics: list[Diagnostic]) -> SensorV2Config:
+    topology = cast(Topology, raw["topology"])
     capture_points = tuple(
         _capture_point(cast(dict[str, Any], point), topology)
-        for point in cast(list[Any], sensor_raw["capture_points"])
+        for point in cast(list[Any], raw["capture_points"])
     )
-    sensor = SensorV2Config(
-        id=str(sensor_raw["id"]),
-        topology=topology,
-        capture_points=capture_points,
-    )
-
     names = [point.name for point in capture_points]
     if len(names) != len(set(names)):
         diagnostics.append(
@@ -527,51 +349,15 @@ def validate_v2_config(path: str | Path) -> ConfigValidation:
                 "mirror topology requires promiscuous capture points",
             )
         )
+    return SensorV2Config(id=str(raw["id"]), topology=topology, capture_points=capture_points)
 
-    processing_raw = cast(dict[str, Any], data.get("processing", {}))
-    processing = ProcessingV2Config(
-        observation_queue_capacity=int(
-            processing_raw.get("observation_queue_capacity", 10_000)
-        ),
-        queue_recovery_cooldown_seconds=float(
-            processing_raw.get("queue_recovery_cooldown_seconds", 30.0)
-        ),
-        graceful_drain_seconds=float(processing_raw.get("graceful_drain_seconds", 10.0)),
-    )
 
-    episodes_raw = cast(dict[str, Any], data.get("episodes", {}))
-    episodes = EpisodeV2Config(
-        capacity=int(episodes_raw.get("capacity", 10_000)),
-        idle_seconds=float(episodes_raw.get("idle_seconds", 30.0)),
-        progress_seconds=float(episodes_raw.get("progress_seconds", 60.0)),
-        replay_lateness_seconds=float(episodes_raw.get("replay_lateness_seconds", 2.0)),
+def _http(raw: dict[str, Any], diagnostics: list[Diagnostic]) -> HttpV2Config:
+    http = HttpV2Config(
+        probe=_section(ListenerV2Config, raw.get("probe"), port=PROBE_PORT),
+        operations=_section(ListenerV2Config, raw.get("operations"), port=OPERATIONS_PORT),
     )
-
-    journal_raw = cast(dict[str, Any], data.get("journal", {}))
-    journal = JournalV2Config(
-        file=str(journal_raw.get("file", "events-v2.jsonl")),
-        max_bytes=int(journal_raw.get("max_bytes", 10_485_760)),
-        backup_count=int(journal_raw.get("backup_count", 5)),
-        fsync_interval_seconds=float(journal_raw.get("fsync_interval_seconds", 1.0)),
-        emergency_max_events=int(journal_raw.get("emergency_max_events", 1_000)),
-        emergency_max_bytes=int(journal_raw.get("emergency_max_bytes", 8_388_608)),
-    )
-
-    http_raw = cast(dict[str, Any], data.get("http", {}))
-    probe_raw = cast(dict[str, Any], http_raw.get("probe", {}))
-    operations_raw = cast(dict[str, Any], http_raw.get("operations", {}))
-    probe = ListenerV2Config(
-        enabled=bool(probe_raw.get("enabled", True)),
-        bind=str(probe_raw.get("bind", "127.0.0.1")),
-        port=int(probe_raw.get("port", 9108)),
-    )
-    operations = ListenerV2Config(
-        enabled=bool(operations_raw.get("enabled", True)),
-        bind=str(operations_raw.get("bind", "127.0.0.1")),
-        port=int(operations_raw.get("port", 9109)),
-        allow_non_loopback=bool(operations_raw.get("allow_non_loopback", False)),
-    )
-    if not _is_loopback_bind(operations.bind) and not operations.allow_non_loopback:
+    if not is_loopback_host(http.operations.bind) and not http.operations.allow_non_loopback:
         diagnostics.append(
             Diagnostic(
                 "error",
@@ -580,26 +366,64 @@ def validate_v2_config(path: str | Path) -> ConfigValidation:
                 "non-loopback operations bind requires allow_non_loopback=true",
             )
         )
-    http = HttpV2Config(probe=probe, operations=operations)
+    return http
 
-    notifications_raw = cast(dict[str, Any], data.get("notifications", {}))
-    notifications = NotificationV2Config(
-        webhook_url_env=notifications_raw.get("webhook_url_env"),
-        timeout_seconds=float(notifications_raw.get("timeout_seconds", 3.0)),
-        minimum_severity=_as_severity(
-            str(notifications_raw.get("minimum_severity", "high"))
+
+def _rule(raw: dict[str, Any], index: int, diagnostics: list[Diagnostic]) -> PolicyRule | None:
+    match_raw = cast(dict[str, Any], raw["match"])
+    protocol = cast(PolicyProtocol, match_raw["protocol"])
+    source_cidrs = _normalize_cidrs(
+        cast(list[Any], match_raw["source_cidrs"]),
+        path=f"/rules/{index}/match/source_cidrs",
+        diagnostics=diagnostics,
+    )
+    destination_cidrs = _normalize_cidrs(
+        cast(list[Any], match_raw["destination_cidrs"]),
+        path=f"/rules/{index}/match/destination_cidrs",
+        diagnostics=diagnostics,
+    )
+    source_versions = {network.version for network in source_cidrs}
+    destination_versions = {network.version for network in destination_cidrs}
+    if source_cidrs and destination_cidrs and not (source_versions & destination_versions):
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "rule.impossible_ip_family",
+                f"/rules/{index}/match",
+                "source and destination CIDRs share no IP family",
+            )
+        )
+    try:
+        destination_ports = _parse_destination_ports(match_raw, protocol)
+    except (TypeError, ValueError) as exc:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "schema.invalid",
+                f"/rules/{index}/match/destination_ports",
+                str(exc),
+            )
+        )
+        return None
+    return PolicyRule(
+        id=str(raw["id"]),
+        description=str(raw["description"]),
+        enabled=bool(raw["enabled"]),
+        match=PolicyMatch(
+            source_cidrs=source_cidrs,
+            destination_cidrs=destination_cidrs,
+            protocol=protocol,
+            destination_ports=destination_ports,
         ),
-        max_attempts=int(notifications_raw.get("max_attempts", 5)),
-        max_elapsed_seconds=float(notifications_raw.get("max_elapsed_seconds", 60.0)),
-        shutdown_drain_seconds=float(notifications_raw.get("shutdown_drain_seconds", 5.0)),
-        insecure_allow_http_loopback=bool(
-            notifications_raw.get("insecure_allow_http_loopback", False)
-        ),
+        severity=cast(Severity, raw["severity"]),
+        enforcement=cast(EnforcementDisposition, raw["enforcement"]),
     )
 
-    rules_list: list[PolicyRule] = []
+
+def _rules(raw: list[Any], diagnostics: list[Diagnostic]) -> tuple[PolicyRule, ...]:
+    rules: list[PolicyRule] = []
     seen_ids: set[str] = set()
-    for index, rule_raw in enumerate(cast(list[Any], data["rules"])):
+    for index, rule_raw in enumerate(raw):
         rule_data = cast(dict[str, Any], rule_raw)
         rule_id = str(rule_data["id"])
         if rule_id in seen_ids:
@@ -613,98 +437,58 @@ def validate_v2_config(path: str | Path) -> ConfigValidation:
             )
             continue
         seen_ids.add(rule_id)
+        rule = _rule(rule_data, index, diagnostics)
+        if rule is not None:
+            rules.append(rule)
+    return tuple(rules)
 
-        match_raw = cast(dict[str, Any], rule_data["match"])
-        protocol = cast(PolicyProtocol, str(match_raw["protocol"]).lower())
-        source_cidrs = _normalize_cidrs(
-            cast(list[Any], match_raw["source_cidrs"]),
-            path=f"/rules/{index}/match/source_cidrs",
-            diagnostics=diagnostics,
+
+def _overlap_warnings(rules: tuple[PolicyRule, ...]) -> list[Diagnostic]:
+    from .policy import find_overlaps  # deferred: policy imports config types
+
+    rule_index = {rule.id: index for index, rule in enumerate(rules)}
+    return [
+        Diagnostic(
+            "warning",
+            "rule.overlap",
+            f"/rules/{rule_index[right_id]}",
+            f"rule {right_id} overlaps {left_id}; every match will be reported",
         )
-        destination_cidrs = _normalize_cidrs(
-            cast(list[Any], match_raw["destination_cidrs"]),
-            path=f"/rules/{index}/match/destination_cidrs",
-            diagnostics=diagnostics,
+        for left_id, right_id in find_overlaps(rules)
+    ]
+
+
+def validate_v2_config(path: str | Path) -> ConfigValidation:
+    raw = _read_json(path)
+    if not isinstance(raw, dict):
+        return ConfigValidation(
+            None, (Diagnostic("error", "schema.invalid", "/", "root must be an object"),)
         )
-        source_versions = {network.version for network in source_cidrs}
-        destination_versions = {network.version for network in destination_cidrs}
-        if source_cidrs and destination_cidrs and not (source_versions & destination_versions):
-            diagnostics.append(
-                Diagnostic(
-                    "error",
-                    "rule.impossible_ip_family",
-                    f"/rules/{index}/match",
-                    "source and destination CIDRs share no IP family",
-                )
-            )
-        try:
-            destination_ports = _parse_destination_ports(match_raw, protocol)
-        except (TypeError, ValueError) as exc:
-            diagnostics.append(
-                Diagnostic(
-                    "error",
-                    "schema.invalid",
-                    f"/rules/{index}/match/destination_ports",
-                    str(exc),
-                )
-            )
-            continue
+    diagnostics = _schema_diagnostics(raw)
+    if diagnostics:
+        return ConfigValidation(None, tuple(diagnostics))
 
-        rules_list.append(
-            PolicyRule(
-                id=rule_id,
-                description=str(rule_data["description"]),
-                enabled=bool(rule_data["enabled"]),
-                match=PolicyMatch(
-                    source_cidrs=source_cidrs,
-                    destination_cidrs=destination_cidrs,
-                    protocol=protocol,
-                    destination_ports=destination_ports,
-                ),
-                severity=_as_severity(str(rule_data["severity"])),
-                enforcement=cast(EnforcementDisposition, rule_data["enforcement"]),
-            )
-        )
-
-    rules = tuple(rules_list)
-
-    # Overlap warnings are appended after policy module is available.
-    try:
-        from .policy import find_overlaps
-    except ImportError:
-        find_overlaps = None  # type: ignore[assignment]
-
-    if find_overlaps is not None:
-        rule_index = {rule.id: index for index, rule in enumerate(rules)}
-        for left_id, right_id in find_overlaps(rules):
-            diagnostics.append(
-                Diagnostic(
-                    "warning",
-                    "rule.overlap",
-                    f"/rules/{rule_index[right_id]}",
-                    f"rule {right_id} overlaps {left_id}; every match will be reported",
-                )
-            )
-
+    data = cast(dict[str, Any], raw)
+    sensor = _sensor(cast(dict[str, Any], data["sensor"]), diagnostics)
+    http = _http(cast(dict[str, Any], data.get("http", {})), diagnostics)
+    rules = _rules(cast(list[Any], data["rules"]), diagnostics)
+    diagnostics.extend(_overlap_warnings(rules))
     if any(item.severity == "error" for item in diagnostics):
         return ConfigValidation(None, tuple(diagnostics))
 
     provisional = PolicyV2Config(
         version=2,
         sensor=sensor,
-        processing=processing,
-        episodes=episodes,
-        journal=journal,
+        processing=_section(ProcessingV2Config, data.get("processing")),
+        episodes=_section(EpisodeV2Config, data.get("episodes")),
+        journal=_section(JournalV2Config, data.get("journal")),
         http=http,
-        notifications=notifications,
+        notifications=_section(NotificationV2Config, data.get("notifications")),
         rules=rules,
         policy_revision=canonical_policy_revision(rules),
         config_revision="",
     )
-    config = replace(
-        provisional,
-        config_revision=canonical_config_revision(provisional),
-    )
+    config = replace(provisional, config_revision=canonical_config_revision(provisional))
     return ConfigValidation(config, tuple(diagnostics))
 
 
@@ -716,8 +500,30 @@ def load_v2_config(path: str | Path, *, strict: bool = False) -> PolicyV2Config:
         selected = errors if errors else warnings
         if not selected and result.config is None:
             selected = list(result.diagnostics)
-        message = "\n".join(
-            f"{item.code} {item.path}: {item.message}" for item in selected
-        )
+        message = "\n".join(f"{item.code} {item.path}: {item.message}" for item in selected)
         raise ConfigError(message)
     return result.config
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigSource:
+    """Produces the *effective* config: the policy file plus operator overrides.
+
+    The same overrides apply at startup and on every SIGHUP reload, so the
+    runtime identity hash stays stable while the file's non-rule fields are unchanged.
+    """
+
+    path: str | Path
+    interface: str | None = None
+
+    def load(self) -> PolicyV2Config:
+        config = load_v2_config(self.path)
+        if not self.interface:
+            return config
+        if len(config.sensor.capture_points) != 1:
+            raise ConfigError(
+                "--interface / IBN_CAPTURE_INTERFACE requires exactly one capture point"
+            )
+        point = replace(config.sensor.capture_points[0], interface=self.interface)
+        overridden = replace(config, sensor=replace(config.sensor, capture_points=(point,)))
+        return replace(overridden, config_revision=canonical_config_revision(overridden))

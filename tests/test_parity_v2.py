@@ -23,9 +23,7 @@ def test_matching_drop_candidate_appears_in_nft_artifact():
         ),
     )
     config = v2_config(rules=(rule,))
-    matches = evaluate_policy(
-        compile_policy(config.rules, config.policy_revision), observation()
-    )
+    matches = evaluate_policy(compile_policy(config.rules, config.policy_revision), observation())
     assert [m.rule.id for m in matches] == ["PARITY"]
     artifact = render_nftables_v2(config)
     assert "tcp dport 5432" in artifact
@@ -37,9 +35,7 @@ def test_matching_drop_candidate_appears_in_nft_artifact():
 def test_enforcement_none_matches_but_does_not_render():
     rule = policy_rule(id="ALERT", enforcement="none")
     config = v2_config(rules=(rule,))
-    matches = evaluate_policy(
-        compile_policy(config.rules, config.policy_revision), observation()
-    )
+    matches = evaluate_policy(compile_policy(config.rules, config.policy_revision), observation())
     assert matches
     artifact = render_nftables_v2(config)
     assert "ALERT" not in artifact

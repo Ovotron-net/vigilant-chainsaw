@@ -12,10 +12,11 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
 
-from .config import NotificationV2Config
+from .config import NotificationV2Config, is_loopback_host
 from .models import EpisodeTransition, EvidenceEnvelope, SystemPayload
 
 logger = logging.getLogger(__name__)
@@ -23,15 +24,27 @@ logger = logging.getLogger(__name__)
 SEVERITY_ORDER = {"low": 10, "medium": 20, "high": 30, "critical": 40}
 
 
+@dataclass(frozen=True, slots=True)
+class NotifierStats:
+    sent: int = 0
+    failed: int = 0
+    dropped: int = 0
+    suppressed: int = 0
+
+
 class V2Notifier(Protocol):
     def start(self) -> None: ...
     def stop(self, *, drain_seconds: float = 5.0) -> None: ...
     def notify(self, envelope: EvidenceEnvelope) -> None: ...
+    def stats(self) -> NotifierStats: ...
 
 
 class NullV2Notifier:
     def start(self) -> None:
         return
+
+    def stats(self) -> NotifierStats:
+        return NotifierStats()
 
     def stop(self, *, drain_seconds: float = 5.0) -> None:
         return
@@ -45,9 +58,7 @@ class WebhookV2Notifier:
         self._config = config
         self._url = self._resolve_url()
         self._queue: queue.Queue[EvidenceEnvelope | None] = queue.Queue(maxsize=1000)
-        self._thread = threading.Thread(
-            target=self._worker, name="ibn-webhook-v2", daemon=True
-        )
+        self._thread = threading.Thread(target=self._worker, name="ibn-webhook-v2", daemon=True)
         self._started = False
         self._stop = threading.Event()
         self.sent = 0
@@ -69,10 +80,15 @@ class WebhookV2Notifier:
         if (
             parsed.scheme == "http"
             and self._config.insecure_allow_http_loopback
-            and parsed.hostname in {"127.0.0.1", "::1", "localhost"}
+            and is_loopback_host(parsed.hostname)
         ):
             return url
         raise ValueError("webhook URL must be https (or http loopback with insecure flag)")
+
+    def stats(self) -> NotifierStats:
+        return NotifierStats(
+            sent=self.sent, failed=self.failed, dropped=self.dropped, suppressed=self.suppressed
+        )
 
     def start(self) -> None:
         if not self._url:
@@ -134,9 +150,7 @@ class WebhookV2Notifier:
 
     def _deliver(self, envelope: EvidenceEnvelope) -> None:
         assert self._url is not None
-        body = json.dumps(envelope.to_dict(), separators=(",", ":"), sort_keys=True).encode(
-            "utf-8"
-        )
+        body = json.dumps(envelope.to_dict(), separators=(",", ":"), sort_keys=True).encode("utf-8")
         attempts = 0
         started = time.monotonic()
         delay = 0.2

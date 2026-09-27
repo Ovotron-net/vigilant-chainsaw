@@ -21,23 +21,24 @@ sudo ./scripts/install-systemd.sh
 # State:  /var/lib/ibn-monitor/
 ```
 
-### Docker (Windows Desktop)
-
-Bridge network + published `9108`/`9109` only — **no** live capture on Desktop.
-See [docker.md](docker.md). Production live sensing: systemd on Linux (above).
-
-```powershell
-New-Item -ItemType Directory -Force -Path data\logs, data\lib | Out-Null
-docker compose up --build -d
-curl.exe -sS http://127.0.0.1:9108/healthz
-```
-
 Validate before start:
 
 ```bash
 ibn-monitor validate --config /etc/ibn-monitor/policy.v2.json --strict
-# or: docker compose --profile tools run --rm validate
 ```
+
+## Run (Windows)
+
+From an **Administrator** PowerShell in the repo (raw capture via `SIO_RCVALL`):
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+ibn-monitor run                              # config/policy.v2.windows.json, interface "auto"
+ibn-monitor run --interface "Wi-Fi"          # adapter name, friendly name, or IPv4
+```
+
+`auto` binds the adapter carrying the default route (link-local adapters are skipped).
+Stop with Ctrl+C (a second Ctrl+C forces exit).
 
 ## Day-2 operations
 
@@ -113,11 +114,13 @@ Mirror topology **cannot** render nftables (detection only).
 | Symptom | Check | Action |
 |---|---|---|
 | `/readyz` 503, reason `capture_point_unavailable` | Interface up? `ip link` | Fix link; wait for recovery backoff |
+| Windows: `capture_point_unavailable` with WinError 10013 | Process elevated? | Run from an Administrator shell |
+| Ready but `totals.observations` stays 0 | Log line `capture established … bind=` | Wrong adapter: set `interface` / `--interface` to the adapter carrying traffic |
 | `app_queue_drops` | Load / rule count / CPU | Reduce traffic mirror span, raise capacity, scale host |
 | `kernel_drops` | Socket stats / rcvbuf | Raise rcvbuf, check NIC, consider TPACKET only after design review |
 | Journal unhealthy | Disk full / permissions | Free space on journal path; restart after fix |
 | Webhook failures | Env URL, TLS, network | Fix `webhook_url_env`; journal remains authoritative |
-| Reload failed `restart_required` | Diff non-rule fields | Full restart with intentional config |
+| Reload failed `restart_required` | Diff non-rule fields | Full restart with intentional config (`--interface` overrides are re-applied on reload and do not cause this) |
 
 ## Shutdown
 

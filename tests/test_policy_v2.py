@@ -28,17 +28,13 @@ def test_partial_observation_matches_only_when_constrained_fields_are_known():
         protocol=None,
         source_port=None,
         destination_port=None,
-        fields=(
-            FieldPresence.IP_VERSION | FieldPresence.SOURCE | FieldPresence.DESTINATION
-        ),
+        fields=(FieldPresence.IP_VERSION | FieldPresence.SOURCE | FieldPresence.DESTINATION),
         outcome="partial",
         decode_reason="ipv6_extension_limit",
     )
     assert [
         item.rule.id
-        for item in evaluate_policy(
-            compile_policy((cidr_only, policy_rule()), "b" * 64), partial
-        )
+        for item in evaluate_policy(compile_policy((cidr_only, policy_rule()), "b" * 64), partial)
     ] == ["CIDR"]
 
 

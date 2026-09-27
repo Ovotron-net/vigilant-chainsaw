@@ -432,9 +432,7 @@ def test_detects_and_loads_v2_with_defaults(tmp_path):
         (lambda p: p["rules"][0]["match"].update(source_cidrs=[]), "source_cidrs"),
         (lambda p: p["rules"][0]["match"].pop("protocol"), "protocol"),
         (
-            lambda p: p["rules"][0]["match"].update(
-                protocol="icmp", destination_ports=[8]
-            ),
+            lambda p: p["rules"][0]["match"].update(protocol="icmp", destination_ports=[8]),
             "destination_ports",
         ),
     ],
@@ -456,14 +454,16 @@ def test_mirror_requires_promiscuous_capture(tmp_path):
 def test_revisions_ignore_json_order_but_include_description(tmp_path):
     first = valid_v2()
     second = json.loads(json.dumps(first, sort_keys=True))
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision == load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        == load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
     second["rules"][0]["description"] = "changed description"
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision != load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        != load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
 
 def test_revision_normalizes_and_deduplicates_equivalent_cidrs(tmp_path):
@@ -473,9 +473,10 @@ def test_revision_normalizes_and_deduplicates_equivalent_cidrs(tmp_path):
         "10.20.5.14/16",
         "10.20.0.0/16",
     ]
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision == load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        == load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 ```
 
 - [ ] **Step 2: Run the tests and verify the v2 loader is missing**
@@ -813,9 +814,7 @@ def _rule_wire(rule: PolicyRule) -> dict[str, object]:
         ports = sorted(rule.match.destination_ports)
     match: dict[str, object] = {
         "source_cidrs": sorted({str(network) for network in rule.match.source_cidrs}),
-        "destination_cidrs": sorted(
-            {str(network) for network in rule.match.destination_cidrs}
-        ),
+        "destination_cidrs": sorted({str(network) for network in rule.match.destination_cidrs}),
         "protocol": rule.match.protocol,
     }
     if rule.match.protocol in {"tcp", "udp"}:
@@ -831,9 +830,9 @@ def _rule_wire(rule: PolicyRule) -> dict[str, object]:
 
 
 def _sha256(payload: object) -> str:
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -850,9 +849,7 @@ def _config_wire(config: PolicyV2Config) -> dict[str, object]:
         "journal": asdict(config.journal),
         "http": asdict(config.http),
         "notifications": asdict(config.notifications),
-        "rules": [
-            _rule_wire(rule) for rule in sorted(config.rules, key=lambda item: item.id)
-        ],
+        "rules": [_rule_wire(rule) for rule in sorted(config.rules, key=lambda item: item.id)],
     }
 
 
@@ -1118,7 +1115,7 @@ def _migrate_rule(
                 "error",
                 "migration.ambiguous_destination_ports",
                 f"/rules/{index}/destination_ports",
-                "v1 omitted/empty ports meant any; choose \"any\" or explicit ports",
+                'v1 omitted/empty ports meant any; choose "any" or explicit ports',
             )
         )
     if diagnostics:
@@ -1240,17 +1237,14 @@ def test_partial_observation_matches_only_when_constrained_fields_are_known():
         protocol=None,
         source_port=None,
         destination_port=None,
-        fields=(
-            FieldPresence.IP_VERSION
-            | FieldPresence.SOURCE
-            | FieldPresence.DESTINATION
-        ),
+        fields=(FieldPresence.IP_VERSION | FieldPresence.SOURCE | FieldPresence.DESTINATION),
         outcome="partial",
         decode_reason="ipv6_extension_limit",
     )
-    assert [item.rule.id for item in evaluate_policy(
-        compile_policy((cidr_only, policy_rule()), "b" * 64), partial
-    )] == ["CIDR"]
+    assert [
+        item.rule.id
+        for item in evaluate_policy(compile_policy((cidr_only, policy_rule()), "b" * 64), partial)
+    ] == ["CIDR"]
 
 
 def test_overlap_detection_is_stable_and_ignores_disabled_rules():
@@ -1301,18 +1295,14 @@ def compile_policy(rules: tuple[PolicyRule, ...], revision: str) -> CompiledPoli
         if not rule.enabled:
             continue
         source_versions = {network.version for network in rule.match.source_cidrs}
-        destination_versions = {
-            network.version for network in rule.match.destination_cidrs
-        }
+        destination_versions = {network.version for network in rule.match.destination_cidrs}
         for version in sorted(source_versions & destination_versions):
             predicates.append(
                 CompiledPredicate(
                     rule=rule,
                     ip_version=version,
                     source_cidrs=tuple(
-                        network
-                        for network in rule.match.source_cidrs
-                        if network.version == version
+                        network for network in rule.match.source_cidrs if network.version == version
                     ),
                     destination_cidrs=tuple(
                         network
@@ -1330,11 +1320,7 @@ Use a private `_required_fields(rule)` helper:
 
 ```python
 def _required_fields(rule: PolicyRule) -> FieldPresence:
-    required = (
-        FieldPresence.IP_VERSION
-        | FieldPresence.SOURCE
-        | FieldPresence.DESTINATION
-    )
+    required = FieldPresence.IP_VERSION | FieldPresence.SOURCE | FieldPresence.DESTINATION
     if rule.match.protocol != "any":
         required |= FieldPresence.PROTOCOL
     if rule.match.destination_ports is not None:
@@ -1357,10 +1343,7 @@ def evaluate_policy(
             continue
         if not any(observation.source in network for network in predicate.source_cidrs):
             continue
-        if not any(
-            observation.destination in network
-            for network in predicate.destination_cidrs
-        ):
+        if not any(observation.destination in network for network in predicate.destination_cidrs):
             continue
         if rule.match.protocol != "any" and observation.protocol != rule.match.protocol:
             continue
@@ -1651,9 +1634,7 @@ def _link(reader: HeaderReader, datalink: int) -> tuple[int, int]:
 Implement IPv4 with:
 
 ```python
-def _decode_ipv4(
-    reader: HeaderReader, offset: int, base: Observation
-) -> Observation:
+def _decode_ipv4(reader: HeaderReader, offset: int, base: Observation) -> Observation:
     data = _need(reader, offset + 20)
     version_ihl = data[offset]
     if version_ihl >> 4 != 4:
@@ -1676,9 +1657,7 @@ def _decode_ipv4(
         | FieldPresence.DESTINATION
         | FieldPresence.PROTOCOL
     )
-    protocol = {1: "icmp", 6: "tcp", 17: "udp"}.get(
-        protocol_number, f"ip:{protocol_number}"
-    )
+    protocol = {1: "icmp", 6: "tcp", 17: "udp"}.get(protocol_number, f"ip:{protocol_number}")
     partial = replace(
         base,
         ip_version=4,
@@ -1745,9 +1724,7 @@ def _decode_transport(
             source_port=int.from_bytes(data[offset : offset + 2], "big"),
             destination_port=int.from_bytes(data[offset + 2 : offset + 4], "big"),
             fields=(
-                observation.fields
-                | FieldPresence.SOURCE_PORT
-                | FieldPresence.DESTINATION_PORT
+                observation.fields | FieldPresence.SOURCE_PORT | FieldPresence.DESTINATION_PORT
             ),
         )
     if protocol == "icmp":
@@ -1927,9 +1904,7 @@ MAX_IPV6_EXTENSIONS = 8
 Implement:
 
 ```python
-def _decode_ipv6(
-    reader: HeaderReader, offset: int, base: Observation
-) -> Observation:
+def _decode_ipv6(reader: HeaderReader, offset: int, base: Observation) -> Observation:
     data = _need(reader, offset + 40)
     if data[offset] >> 4 != 6:
         raise _DecodeFailure("invalid_ipv6_version")
@@ -1939,11 +1914,7 @@ def _decode_ipv6(
     next_header = data[offset + 6]
     cursor = offset + 40
     packet_end = cursor + payload_length
-    fields = (
-        FieldPresence.IP_VERSION
-        | FieldPresence.SOURCE
-        | FieldPresence.DESTINATION
-    )
+    fields = FieldPresence.IP_VERSION | FieldPresence.SOURCE | FieldPresence.DESTINATION
     partial = replace(
         base,
         ip_version=6,
@@ -1977,9 +1948,7 @@ def _decode_ipv6(
             if fragment >> 3:
                 return replace(
                     partial,
-                    protocol={6: "tcp", 17: "udp", 58: "icmp"}.get(
-                        following, f"ip:{following}"
-                    ),
+                    protocol={6: "tcp", 17: "udp", 58: "icmp"}.get(following, f"ip:{following}"),
                     fields=fields | FieldPresence.PROTOCOL,
                     decode_reason="non_initial_fragment",
                 )
@@ -1992,9 +1961,7 @@ def _decode_ipv6(
         cursor += header_length
         next_header = following
 
-    protocol = {6: "tcp", 17: "udp", 58: "icmp"}.get(
-        next_header, f"ip:{next_header}"
-    )
+    protocol = {6: "tcp", 17: "udp", 58: "icmp"}.get(next_header, f"ip:{next_header}")
     complete = replace(
         partial,
         protocol=protocol,
@@ -2137,9 +2104,7 @@ def test_streams_timestamped_observations(endian, nanosecond):
     assert observations[0].captured_at.microsecond == 500_000
     assert observations[0].wire_length == 1500
     packet_start = 24 + 16
-    packet_bytes_read = sum(
-        length for start, length in stream.read_ranges if start >= packet_start
-    )
+    packet_bytes_read = sum(length for start, length in stream.read_ranges if start >= packet_start)
     assert packet_bytes_read == len(frame)
     assert stream.tell() == len(stream.getvalue())
 
@@ -2418,9 +2383,7 @@ class _EpisodeState:
         self.observation_count = 1
         self.observed_bytes = observation.wire_length
         self.late_observation_count = int(observation.late)
-        self.per_point = {
-            observation.capture_point: [1, observation.wire_length]
-        }
+        self.per_point = {observation.capture_point: [1, observation.wire_length]}
 ```
 
 `EpisodeTracker` stores `OrderedDict[EpisodeKey, _EpisodeState]`. Key construction includes policy revision supplied to `observe`:
@@ -2549,9 +2512,7 @@ def test_episode_envelope_has_stable_identity_and_wire_shape():
             "observation_count": 1,
             "observed_bytes": 60,
             "late_observation_count": 0,
-            "per_capture_point": {
-                "pcap": {"observations": 1, "observed_bytes": 60}
-            },
+            "per_capture_point": {"pcap": {"observations": 1, "observed_bytes": 60}},
             "truncated": False,
             "close_reason": None,
         },
@@ -2621,10 +2582,7 @@ class EvidenceEnvelope:
                 "last_observed_at": transition.last_observed_at.isoformat(),
                 "duration_seconds": max(
                     0.0,
-                    (
-                        transition.last_observed_at
-                        - transition.first_observed_at
-                    ).total_seconds(),
+                    (transition.last_observed_at - transition.first_observed_at).total_seconds(),
                 ),
                 "observation_count": transition.observation_count,
                 "observed_bytes": transition.observed_bytes,
@@ -2634,8 +2592,7 @@ class EvidenceEnvelope:
                         "observations": observations,
                         "observed_bytes": observed_bytes,
                     }
-                    for name, observations, observed_bytes
-                    in transition.per_capture_point
+                    for name, observations, observed_bytes in transition.per_capture_point
                 },
                 "truncated": transition.truncated,
                 "close_reason": transition.close_reason,
@@ -2753,9 +2710,7 @@ from ibn_monitor.replay import replay_pcap
 
 
 def record(seconds, destination_port=5432):
-    frame = ethernet_frame(
-        ipv4_packet(tcp_header(destination_port=destination_port), protocol=6)
-    )
+    frame = ethernet_frame(ipv4_packet(tcp_header(destination_port=destination_port), protocol=6))
     return (seconds, 0, frame, len(frame))
 
 
@@ -2855,9 +2810,7 @@ def replay_pcap(config, pcap_path, output, *, boot_id):
             config.episodes.idle_seconds,
             config.episodes.progress_seconds,
         ),
-        id_factory=lambda: (
-            f"{boot_id}:episode:{next(episode_sequence)}"
-        ),
+        id_factory=lambda: f"{boot_id}:episode:{next(episode_sequence)}",
     )
     sequencer = EvidenceSequencer(config.sensor.id, boot_id)
     heap: list[tuple[float, int, Observation]] = []
@@ -2990,26 +2943,27 @@ def test_check_v2_returns_one_for_violation(v2_policy_path, capsys):
     assert json.loads(capsys.readouterr().out)["rules"][0]["id"] == "DEV-DB"
 
 
-def test_replay_requires_v2_and_separate_output_paths(
-    v2_policy_path, pcap_path, tmp_path, capsys
-):
+def test_replay_requires_v2_and_separate_output_paths(v2_policy_path, pcap_path, tmp_path, capsys):
     events = tmp_path / "events.jsonl"
     summary = tmp_path / "summary.json"
-    assert main(
-        [
-            "replay",
-            "--config",
-            str(v2_policy_path),
-            "--pcap",
-            str(pcap_path),
-            "--output",
-            str(events),
-            "--summary-output",
-            str(summary),
-            "--boot-id",
-            "test-replay",
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "replay",
+                "--config",
+                str(v2_policy_path),
+                "--pcap",
+                str(pcap_path),
+                "--output",
+                str(events),
+                "--summary-output",
+                str(summary),
+                "--boot-id",
+                "test-replay",
+            ]
+        )
+        == 0
+    )
     assert events.read_text(encoding="utf-8")
     assert json.loads(summary.read_text(encoding="utf-8"))["observations"] >= 1
 ```
@@ -3037,9 +2991,7 @@ migrate_parser = subparsers.add_parser(
 migrate_parser.add_argument("--config", required=True)
 migrate_parser.add_argument("--output", required=True)
 migrate_parser.add_argument("--sensor-id", required=True)
-migrate_parser.add_argument(
-    "--topology", choices=["gateway", "mirror", "host"], required=True
-)
+migrate_parser.add_argument("--topology", choices=["gateway", "mirror", "host"], required=True)
 migrate_parser.add_argument(
     "--capture-point",
     required=True,

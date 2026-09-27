@@ -24,7 +24,7 @@ sudo IBN_PERF_GATE=1 pytest -m linux_perf -q
 
 | Test module | Intent |
 |---|---|
-| `test_afpacket_netns.py` | veth pair, CAP_NET_RAW capture, establish + observations |
+| `test_afpacket_netns.py` | `AfPacketAdapter` opens on `lo` with the owned cBPF attached; netns/veth lab scaffold |
 | `test_nftables_topology.py` | gateway/host render check; mirror rejects; apply dry-run |
 
 Implementation may be expanded over time; stubs document the contract even when skipped.

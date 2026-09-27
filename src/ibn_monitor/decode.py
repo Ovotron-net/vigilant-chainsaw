@@ -122,9 +122,7 @@ def _decode_transport(
             source_port=int.from_bytes(data[offset : offset + 2], "big"),
             destination_port=int.from_bytes(data[offset + 2 : offset + 4], "big"),
             fields=(
-                observation.fields
-                | FieldPresence.SOURCE_PORT
-                | FieldPresence.DESTINATION_PORT
+                observation.fields | FieldPresence.SOURCE_PORT | FieldPresence.DESTINATION_PORT
             ),
         )
     if protocol == "icmp":
@@ -138,9 +136,7 @@ def _decode_transport(
     return observation
 
 
-def _decode_ipv4(
-    reader: HeaderReader, offset: int, base: Observation
-) -> Observation:
+def _decode_ipv4(reader: HeaderReader, offset: int, base: Observation) -> Observation:
     data = _need(reader, offset + 20)
     version_ihl = data[offset]
     if version_ihl >> 4 != 4:
@@ -163,9 +159,7 @@ def _decode_ipv4(
         | FieldPresence.DESTINATION
         | FieldPresence.PROTOCOL
     )
-    protocol = {1: "icmp", 6: "tcp", 17: "udp"}.get(
-        protocol_number, f"ip:{protocol_number}"
-    )
+    protocol = {1: "icmp", 6: "tcp", 17: "udp"}.get(protocol_number, f"ip:{protocol_number}")
     partial = replace(
         base,
         ip_version=4,
@@ -197,9 +191,7 @@ def _decode_ipv4(
         )
 
 
-def _decode_ipv6(
-    reader: HeaderReader, offset: int, base: Observation
-) -> Observation:
+def _decode_ipv6(reader: HeaderReader, offset: int, base: Observation) -> Observation:
     data = _need(reader, offset + 40)
     if data[offset] >> 4 != 6:
         raise _DecodeFailure("invalid_ipv6_version")

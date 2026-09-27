@@ -215,6 +215,7 @@ class Event:
 
     def to_dict(self) -> dict[str, object]:
         from dataclasses import asdict
+
         return {
             "schema_version": self.schema_version,
             "event_id": self.event_id,
@@ -336,9 +337,15 @@ class Notifier(Protocol):
 
 class NullNotifier:
     """No-op when webhook_url_env is unset or empty."""
-    def start(self) -> None: return
-    def stop(self) -> None: return
-    def notify(self, event: Event) -> None: return
+
+    def start(self) -> None:
+        return
+
+    def stop(self) -> None:
+        return
+
+    def notify(self, event: Event) -> None:
+        return
 
 
 class WebhookNotifier:
@@ -353,6 +360,7 @@ class EventLog:
     def __init__(self, logging_config: LoggingConfig, *, recent_maxlen: int = 50) -> None: ...
     def write(self, event: Event) -> None:
         """Append JSONL line and push to recent ring as event.to_dict()."""
+
     def recent(self) -> list[dict[str, object]]: ...
     def close(self) -> None: ...
 
@@ -412,6 +420,7 @@ class MonitorService:
 ```python
 # tests/test_events.py (add)
 
+
 def test_null_notifier_does_not_raise():
     n = NullNotifier()
     n.start()
@@ -421,6 +430,7 @@ def test_null_notifier_does_not_raise():
 
 def test_event_log_writes_jsonl_and_recent(tmp_path):
     from ibn_monitor.config import LoggingConfig
+
     log = EventLog(LoggingConfig(file=str(tmp_path / "e.jsonl"), max_bytes=1024, backup_count=1))
     event = create_event(_packet(), _rule())
     log.write(event)
@@ -548,6 +558,7 @@ Literal parsing without `type: ignore`:
 ```python
 _PROTOCOLS: frozenset[str] = frozenset({"any", "tcp", "udp", "icmp"})
 
+
 def _as_protocol(value: str, path: str) -> Protocol:
     if value not in _PROTOCOLS:
         raise ConfigError(f"{path} is invalid")
@@ -558,6 +569,7 @@ Prefer:
 
 ```python
 from typing import cast
+
 return cast(Protocol, value)
 ```
 
@@ -578,20 +590,28 @@ Add:
 ```python
 def test_rejects_duplicate_rule_ids(tmp_path):
     path = tmp_path / "policy.json"
-    path.write_text(json.dumps({
-        "version": 1,
-        "rules": [{"id": "x"}, {"id": "x"}],
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [{"id": "x"}, {"id": "x"}],
+            }
+        )
+    )
     with pytest.raises(ConfigError, match="unique"):
         load_config(path)
 
 
 def test_rejects_invalid_cidr(tmp_path):
     path = tmp_path / "policy.json"
-    path.write_text(json.dumps({
-        "version": 1,
-        "rules": [{"id": "x", "source_cidrs": ["not-a-cidr"]}],
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [{"id": "x", "source_cidrs": ["not-a-cidr"]}],
+            }
+        )
+    )
     with pytest.raises(ConfigError, match="CIDR"):
         load_config(path)
 ```
@@ -699,7 +719,11 @@ service.reload_rules(reloaded.rules)
 import pytest
 from ipaddress import ip_network
 from ibn_monitor.config import (
-    AppConfig, HealthConfig, LoggingConfig, NotificationConfig, SensorConfig,
+    AppConfig,
+    HealthConfig,
+    LoggingConfig,
+    NotificationConfig,
+    SensorConfig,
 )
 from ibn_monitor.models import PacketMetadata, Rule
 
@@ -720,10 +744,12 @@ def rule_factory():
         )
         values.update(overrides)
         return Rule(**values)
+
     return rule
 
 
 # Or plain helpers (preferred by AGENTS style — not necessarily fixtures):
+
 
 def rule(**overrides) -> Rule: ...
 def metadata(**overrides) -> PacketMetadata: ...

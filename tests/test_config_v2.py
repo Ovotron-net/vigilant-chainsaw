@@ -5,8 +5,12 @@ import pytest
 
 from ibn_monitor.config import (
     ConfigError,
+    ConfigSource,
+    JournalV2Config,
+    NotificationV2Config,
     _load_v2_schema,
     detect_config_version,
+    is_loopback_host,
     load_v2_config,
     validate_v2_config,
 )
@@ -95,14 +99,16 @@ def test_mirror_requires_promiscuous_capture(tmp_path):
 def test_revisions_ignore_json_order_but_include_description(tmp_path):
     first = valid_v2()
     second = json.loads(json.dumps(first, sort_keys=True))
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision == load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        == load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
     second["rules"][0]["description"] = "changed description"
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision != load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        != load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
 
 def test_revision_normalizes_and_deduplicates_equivalent_cidrs(tmp_path):
@@ -112,9 +118,10 @@ def test_revision_normalizes_and_deduplicates_equivalent_cidrs(tmp_path):
         "10.20.5.14/16",
         "10.20.0.0/16",
     ]
-    assert load_v2_config(write_json(tmp_path, first)).policy_revision == load_v2_config(
-        write_json(tmp_path, second)
-    ).policy_revision
+    assert (
+        load_v2_config(write_json(tmp_path, first)).policy_revision
+        == load_v2_config(write_json(tmp_path, second)).policy_revision
+    )
 
 
 def test_strict_mode_raises_on_overlap_warning(tmp_path):
@@ -141,3 +148,55 @@ def test_strict_mode_raises_on_overlap_warning(tmp_path):
     load_v2_config(path)
     with pytest.raises(ConfigError, match="rule.overlap"):
         load_v2_config(path, strict=True)
+
+
+def test_omitted_sections_take_dataclass_defaults(tmp_path):
+    config = load_v2_config(write_json(tmp_path, valid_v2()))
+    assert config.journal == JournalV2Config()
+    assert config.notifications == NotificationV2Config()
+    assert (config.http.probe.port, config.http.operations.port) == (9108, 9109)
+
+
+def test_integer_json_values_become_declared_floats(tmp_path):
+    payload = valid_v2()
+    payload["episodes"] = {"idle_seconds": 7}
+    config = load_v2_config(write_json(tmp_path, payload))
+    assert config.episodes.idle_seconds == 7.0
+    assert isinstance(config.episodes.idle_seconds, float)
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("127.0.0.1", True),
+        ("127.0.0.2", True),
+        ("::1", True),
+        ("[::1]", True),
+        ("localhost", True),
+        ("LOCALHOST", True),
+        ("0.0.0.0", False),
+        ("10.0.0.1", False),
+        ("example.com", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_loopback_host(host, expected):
+    assert is_loopback_host(host) is expected
+
+
+def test_config_source_applies_interface_override_consistently(tmp_path):
+    path = write_json(tmp_path, valid_v2())
+    source = ConfigSource(path, interface="eth7")
+    first, second = source.load(), source.load()
+    assert first.sensor.capture_points[0].interface == "eth7"
+    assert first == second
+    assert first.config_revision != load_v2_config(path).config_revision
+
+
+def test_config_source_override_requires_single_capture_point(tmp_path):
+    payload = valid_v2()
+    second_point = dict(payload["sensor"]["capture_points"][0], name="lan", interface="eth1")
+    payload["sensor"]["capture_points"].append(second_point)
+    with pytest.raises(ConfigError, match="exactly one capture point"):
+        ConfigSource(write_json(tmp_path, payload), interface="eth7").load()

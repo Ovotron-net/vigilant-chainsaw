@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from pathlib import Path
+from dataclasses import replace
 
 from .capture import ObservationSource
-from .config import PolicyV2Config
-from .evidence_stub import EvidenceWriter, FileEvidenceWriter
-from .models import ControlMessage
+from .config import ConfigSource, PolicyV2Config
+from .evidence import EvidenceWriter
+from .journal import JournalWriter
+from .models import ControlMessage, OperationalSnapshot
 from .notifications_v2 import build_v2_notifier
 from .operations import OperationsServer
 from .pipeline import PipelineConfig, PipelineWorker
@@ -18,13 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 class LiveMonitor:
-    """V2 live composition: sources + pipeline worker + minimal probe."""
+    """V2 live composition: sources + pipeline worker + probe and operations HTTP."""
 
     def __init__(
         self,
         config: PolicyV2Config,
         *,
-        config_path: str,
+        config_source: ConfigSource | None,
         sources: tuple[ObservationSource, ...] | None = None,
         evidence: EvidenceWriter | None = None,
         boot_id: str | None = None,
@@ -32,19 +33,8 @@ class LiveMonitor:
         operations_enabled: bool | None = None,
     ) -> None:
         self._config = config
-        self._config_path = config_path
         self._boot_id = boot_id or str(uuid.uuid4())
-        if evidence is None:
-            journal = config.journal
-            evidence = FileEvidenceWriter(
-                Path(journal.file),
-                max_bytes=journal.max_bytes,
-                backup_count=journal.backup_count,
-                fsync_interval_seconds=journal.fsync_interval_seconds,
-                emergency_max_events=journal.emergency_max_events,
-                emergency_max_bytes=journal.emergency_max_bytes,
-            )
-        self._evidence = evidence
+        self._evidence: EvidenceWriter = evidence or JournalWriter(config.journal)
         self._notifier = build_v2_notifier(config.notifications)
         if sources is None:
             from .capture_live import build_live_sources
@@ -55,24 +45,17 @@ class LiveMonitor:
             config,
             pipeline_config=PipelineConfig(
                 observation_capacity=config.processing.observation_queue_capacity,
-                queue_recovery_cooldown_seconds=(
-                    config.processing.queue_recovery_cooldown_seconds
-                ),
+                queue_recovery_cooldown_seconds=config.processing.queue_recovery_cooldown_seconds,
                 graceful_drain_seconds=config.processing.graceful_drain_seconds,
-                config_path=config_path,
+                config_source=config_source,
             ),
             evidence=self._evidence,
             boot_id=self._boot_id,
             notifier=self._notifier,
         )
-        enabled = config.http.probe.enabled if probe_enabled is None else probe_enabled
+        probe = config.http.probe
         self._probe = ProbeServer(
-            type(config.http.probe)(
-                enabled=enabled,
-                bind=config.http.probe.bind,
-                port=config.http.probe.port,
-                allow_non_loopback=config.http.probe.allow_non_loopback,
-            ),
+            replace(probe, enabled=probe.enabled if probe_enabled is None else probe_enabled),
             self._worker.snapshot,
             metrics_provider=self._worker.metrics_text,
         )
@@ -82,12 +65,7 @@ class LiveMonitor:
         if probe_enabled is False and operations_enabled is None:
             ops_enabled = False
         self._operations = OperationsServer(
-            type(ops)(
-                enabled=ops_enabled,
-                bind=ops.bind,
-                port=ops.port,
-                allow_non_loopback=ops.allow_non_loopback,
-            ),
+            replace(ops, enabled=ops_enabled),
             self._worker.operations_state,
         )
 
@@ -115,15 +93,11 @@ class LiveMonitor:
     def stop(self, *, force: bool = False) -> None:
         for source in self._sources:
             source.stop()
+        # The worker's shutdown path closes episodes, flushes evidence and drains the notifier.
         self._worker.stop(force=force)
         self._operations.stop()
         self._probe.stop()
-        self._notifier.stop(
-            drain_seconds=self._config.notifications.shutdown_drain_seconds
-        )
-        close = getattr(self._evidence, "close", None)
-        if callable(close):
-            close()
+        self._evidence.close()
 
     def request_reload(self) -> None:
         self._worker.control_sink(
@@ -138,8 +112,11 @@ class LiveMonitor:
             )
         )
 
-    def snapshot(self):
+    def snapshot(self) -> OperationalSnapshot:
         return self._worker.snapshot()
 
     def operations_state(self) -> dict[str, object]:
         return self._worker.operations_state()
+
+    def metrics_text(self) -> str:
+        return self._worker.metrics_text()

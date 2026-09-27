@@ -31,7 +31,7 @@ from ibn_monitor.config import (  # noqa: E402
     canonical_policy_revision,
     load_v2_config,
 )
-from ibn_monitor.evidence_stub import MemoryEvidenceWriter  # noqa: E402
+from ibn_monitor.evidence import MemoryEvidenceWriter  # noqa: E402
 from ibn_monitor.models import FieldPresence, Observation, PolicyMatch, PolicyRule  # noqa: E402
 from ibn_monitor.monitor import LiveMonitor  # noqa: E402
 
@@ -99,15 +99,13 @@ def main() -> int:
         policy_revision=canonical_policy_revision(rules),
         config_revision="",
     )
-    config = replace(
-        provisional, config_revision=canonical_config_revision(provisional)
-    )
+    config = replace(provisional, config_revision=canonical_config_revision(provisional))
 
     evidence = MemoryEvidenceWriter()
     source = MemoryObservationSource("wan")
     monitor = LiveMonitor(
         config,
-        config_path=str(example),
+        config_source=None,
         sources=(source,),
         evidence=evidence,
         boot_id="microbench",

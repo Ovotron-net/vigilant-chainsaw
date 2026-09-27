@@ -10,29 +10,19 @@ import logging
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
 from pathlib import Path
 
-from .events import serialize_evidence
+from .config import JournalV2Config
+from .evidence import serialize_evidence
 from .models import EvidenceEnvelope
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class JournalConfig:
-    file: str
-    max_bytes: int = 10_485_760
-    backup_count: int = 5
-    fsync_interval_seconds: float = 1.0
-    emergency_max_events: int = 1_000
-    emergency_max_bytes: int = 8_388_608
-
-
 class JournalWriter:
     """Append-only JSONL with rotation, fsync, and emergency buffer."""
 
-    def __init__(self, config: JournalConfig) -> None:
+    def __init__(self, config: JournalV2Config) -> None:
         self._config = config
         self._path = Path(config.file)
         self._path.parent.mkdir(parents=True, exist_ok=True)

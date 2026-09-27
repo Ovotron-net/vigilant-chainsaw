@@ -7,6 +7,7 @@ Use this before tagging a release or promoting a build to production.
 ```bash
 pip install -e ".[dev]"
 ruff check .
+ruff format --check .
 pytest -q
 # Default suite excludes privileged Linux tests
 pytest -m "not linux_raw" -q
@@ -18,7 +19,7 @@ ibn-monitor replay --config config/policy.v2.example.json \
 ibn-monitor render-nftables --config config/policy.v2.example.json \
   --output build/ibn-monitor-v2.nft
 python -m pip wheel . --no-deps --wheel-dir build/wheels
-# Wheel must contain both schemas:
+# Wheel must contain the v2 schema:
 python -c "import glob,zipfile; z=zipfile.ZipFile(glob.glob('build/wheels/*.whl')[0]); print([n for n in z.namelist() if n.endswith('.schema.json')])"
 ```
 
@@ -43,12 +44,12 @@ See `tests/integration_linux/README.md`.
 ## Manual operator smoke
 
 - [ ] Install unit via `scripts/install-systemd.sh` on a lab host
-  **or** `docker compose up --build -d` (see `docs/operator/docker.md`)
 - [ ] `/healthz` 200, `/readyz` becomes ready after interfaces up
+- [ ] Windows: elevated `ibn-monitor run` binds the default-route adapter and `totals.observations` grows
 - [ ] Ops dashboard on loopback 9109
-- [ ] (Docker) image builds; `docker compose --profile tools run --rm validate` ok
 - [ ] SIGHUP rule-only reload journals success/noop
 - [ ] Non-rule change reload journals `restart_required`
+- [ ] With `--interface` set, an unchanged-file SIGHUP journals `policy_reload_noop` (not `restart_required`)
 - [ ] `apply-nftables.sh` backs up, checks, applies, lists table
 - [ ] Mirror policy `render-nftables` fails closed
 - [ ] SIGTERM produces clean journal marker

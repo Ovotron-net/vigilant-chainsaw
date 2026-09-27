@@ -23,23 +23,18 @@ pytestmark = [
 ]
 
 
-def test_afpacket_source_constructible_on_linux():
-    from ibn_monitor.capture_afpacket import AfPacketSource, AfPacketSourceConfig
+def test_afpacket_adapter_opens_with_cbpf_attached_on_loopback():
+    from ibn_monitor.capture_afpacket import AfPacketAdapter
     from ibn_monitor.config import CapturePointConfig
 
-    src = AfPacketSource(
-        AfPacketSourceConfig(
-            sensor_id="lab",
-            capture_point=CapturePointConfig(
-                name="wan",
-                interface="lo",
-                direction="both",
-                promiscuous=False,
-            ),
-            boot_id="lab-boot",
-        )
+    adapter = AfPacketAdapter(
+        CapturePointConfig(name="wan", interface="lo", direction="both", promiscuous=False)
     )
-    assert src.capture_point == "wan"
+    try:
+        assert "cbpf=on" in adapter.open()
+        assert adapter.poll_kernel_stats() >= (0, 0)
+    finally:
+        adapter.close()
 
 
 def test_netns_veth_scaffold():

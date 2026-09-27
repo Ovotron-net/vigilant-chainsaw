@@ -11,12 +11,12 @@ Probe vs ops migration: [migration-and-events.md](migration-and-events.md).
 
 | Piece | Location |
 |---|---|
-| Snapshot assembly | `ReadModel.view()` in `src/ibn_monitor/read_model.py` |
+| Snapshot assembly | `ReadModel.view()` in `src/ibn_monitor/read_model.py`, fed by one atomic `ReadModel.publish(...)` per worker step |
 | Episode summaries | `episode_summary()` (same module) |
 | Rule projection | `rule_to_dict()` (same module) |
 | Evidence wire shape | `EvidenceEnvelope.to_dict()` in `src/ibn_monitor/models.py` |
 | HTTP transport | `OperationsServer` in `src/ibn_monitor/operations.py` |
-| Smoke coverage (partial) | `tests/test_operations_v2.py` — counters/metrics smoke, not a full key lock |
+| Tests | `tests/test_operations_v2.py` — `publish`/`view`/metrics, real `OperationsServer` and `ProbeServer` on an ephemeral port (not a full key lock) |
 
 Additive top-level or nested fields are non-breaking for clients that ignore
 unknown keys. Removing or renaming keys is breaking for ops UIs — update
@@ -24,10 +24,9 @@ fixtures/tests and note it in release notes.
 
 ## Trust boundary
 
-- Loopback by default: bind to a loopback **IP literal** such as `127.0.0.1` or
-  `::1`. Config validation uses `ip_address(...).is_loopback`; hostnames
-  (including `localhost`) are **not** treated as loopback and require
-  `allow_non_loopback=true`.
+- Loopback by default. `localhost` and any loopback IP literal (`127.0.0.0/8`,
+  `::1`) count as loopback — the same `config.is_loopback_host` check is used at
+  config load and at server start. Anything else requires `allow_non_loopback=true`.
 - Non-loopback bind requires explicit `http.operations.allow_non_loopback=true`
   (validated at config load and again at server start).
 - No authentication on the sensor.
@@ -56,7 +55,7 @@ Illustrative full body:
 | `operational` | object | Readiness, revisions, queue, drops, per-source capture status |
 | `totals` | object | Pipeline counters since process start |
 | `rules` | array | Loaded v2 policy rules (projection, not raw config file) |
-| `active_episodes` | array | Up to 100 active episode summaries |
+| `active_episodes` | array | Up to 100 active episode summaries (republished every timer tick, ≤ 250 ms stale) |
 | `active_episodes_truncated` | bool | `true` if more than 100 actives existed at snapshot time |
 | `recent_events` | array | Up to 100 evidence envelopes (ring, oldest → newest) |
 | `recent_events_truncated` | bool | `true` once the recent-events ring has wrapped |
@@ -73,7 +72,7 @@ Illustrative full body:
 | `ready` | bool | `true` only when `state == "ready"` |
 | `reasons` | string[] | Sorted reason codes (empty when healthy-ready) |
 | `policy_revision` | string \| null | Loaded policy hash |
-| `config_revision` | string \| null | Runtime-identity hash (reload gate) |
+| `config_revision` | string \| null | Canonical hash of the effective config (file + operator overrides, rules included). The reload gate is a separate runtime-identity hash that excludes rules. |
 | `sensor_id` | string | From config |
 | `boot_id` | string | Process boot identity |
 | `queue_depth` | int | Current observation queue depth |
@@ -82,7 +81,8 @@ Illustrative full body:
 | `kernel_drops_total` | int | Aggregated kernel drops |
 | `sources` | array | Per capture-point status (see below) |
 
-When ops has never published a snapshot, `view()` still returns defaults
+The worker publishes once at construction, so a live sensor never serves an
+empty snapshot. A bare `ReadModel()` still returns defaults
 (`state: "starting"`, empty `sources`, zero queues).
 
 #### `operational.sources[]`

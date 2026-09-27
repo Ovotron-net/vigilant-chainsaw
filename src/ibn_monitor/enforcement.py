@@ -1,47 +1,12 @@
-"""Deterministic nftables rendering for v1 and topology-aware v2 policies."""
+"""Deterministic topology-aware nftables rendering for v2 policies."""
 
 from __future__ import annotations
 
 import re
 from itertools import product
 
-from .config import AppConfig, ConfigError, PolicyV2Config
-from .models import PolicyRule, Rule
-
-
-def render_nftables(config: AppConfig) -> str:
-    """V1 renderer: always targets the forward chain for action=drop rules."""
-    lines = [
-        "#!/usr/sbin/nft -f",
-        "",
-        "add table inet ibn_monitor",
-        "flush table inet ibn_monitor",
-        (
-            "add chain inet ibn_monitor forward "
-            "{ type filter hook forward priority filter; policy accept; }"
-        ),
-        "",
-    ]
-
-    rendered = 0
-    for rule in config.rules:
-        if not rule.enabled or rule.action != "drop":
-            continue
-        safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", rule.id)[:32]
-        comment = f"{rule.id}: {rule.description}".replace("\r", " ").replace("\n", " ")
-        for expression in _v1_rule_expressions(rule):
-            lines.append(f"# {comment}")
-            lines.append(
-                f"add rule inet ibn_monitor forward {expression} "
-                f'limit rate 10/second log prefix "IBN {safe_id} "'
-            )
-            lines.append(f"add rule inet ibn_monitor forward {expression} counter drop")
-            rendered += 1
-
-    if rendered == 0:
-        lines.append("# No enabled rules with action=drop were configured.")
-    lines.append("")
-    return "\n".join(lines)
+from .config import ConfigError, PolicyV2Config
+from .models import PolicyRule
 
 
 def render_nftables_v2(config: PolicyV2Config) -> str:
@@ -94,15 +59,11 @@ def render_nftables_v2(config: PolicyV2Config) -> str:
                     f"add rule inet ibn_monitor {chain} {expression} "
                     f'limit rate 10/second log prefix "IBN {safe_id} "'
                 )
-                lines.append(
-                    f"add rule inet ibn_monitor {chain} {expression} counter drop"
-                )
+                lines.append(f"add rule inet ibn_monitor {chain} {expression} counter drop")
                 rendered += 1
 
     if rendered == 0:
-        lines.append(
-            "# No enabled rules with enforcement=nftables_drop_candidate were configured."
-        )
+        lines.append("# No enabled rules with enforcement=nftables_drop_candidate were configured.")
     lines.append("")
     return "\n".join(lines)
 
@@ -113,48 +74,6 @@ def _chains_for_topology(topology: str) -> tuple[tuple[str, str], ...]:
     if topology == "host":
         return (("input", "input"), ("output", "output"))
     raise ConfigError(f"unsupported topology for nftables: {topology}")
-
-
-def _v1_rule_expressions(rule: Rule) -> list[str]:
-    source_versions = {network.version for network in rule.source_cidrs} or {4, 6}
-    destination_versions = {network.version for network in rule.destination_cidrs} or {
-        4,
-        6,
-    }
-    versions = sorted(source_versions & destination_versions)
-    expressions: list[str] = []
-
-    for version in versions:
-        family = "ip" if version == 4 else "ip6"
-        sources = [network for network in rule.source_cidrs if network.version == version] or [
-            None
-        ]
-        destinations = [
-            network for network in rule.destination_cidrs if network.version == version
-        ] or [None]
-        ports = sorted(rule.destination_ports)
-        port_match = None
-        if len(ports) == 1:
-            port_match = str(ports[0])
-        elif ports:
-            port_match = "{ " + ", ".join(str(port) for port in ports) + " }"
-
-        for source, destination in product(sources, destinations):
-            parts: list[str] = []
-            if source is not None:
-                parts.extend([family, "saddr", str(source)])
-            if destination is not None:
-                parts.extend([family, "daddr", str(destination)])
-            if port_match is not None:
-                parts.extend([rule.protocol, "dport", port_match])
-            elif rule.protocol != "any":
-                protocol = (
-                    "icmpv6" if rule.protocol == "icmp" and version == 6 else rule.protocol
-                )
-                parts.extend(["meta", "l4proto", protocol])
-            expressions.append(" ".join(parts))
-
-    return expressions
 
 
 def _v2_rule_expressions(rule: PolicyRule) -> list[str]:
@@ -178,11 +97,7 @@ def _v2_rule_expressions(rule: PolicyRule) -> list[str]:
             (n for n in match.destination_cidrs if n.version == version),
             key=lambda n: (int(n.network_address), n.prefixlen),
         )
-        ports = (
-            None
-            if match.destination_ports is None
-            else sorted(match.destination_ports)
-        )
+        ports = None if match.destination_ports is None else sorted(match.destination_ports)
         port_match = None
         if ports is not None:
             if len(ports) == 1:
