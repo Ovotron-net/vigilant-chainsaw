@@ -4,7 +4,6 @@ import argparse
 import json
 import logging
 import os
-import platform
 import signal
 import sys
 import threading
@@ -13,6 +12,7 @@ from datetime import UTC, datetime
 from ipaddress import ip_address
 from pathlib import Path
 
+from .capture_live import require_live_platform
 from .config import (
     ConfigError,
     ConfigSource,
@@ -292,12 +292,7 @@ def _run(args: argparse.Namespace) -> int:
         )
 
     _require_v2(args.config, "run")
-    system = platform.system().lower()
-    if system not in {"windows", "linux"}:
-        raise ConfigError(
-            f"live run requires Windows or Linux (got {platform.system()}); "
-            "use: ibn-monitor replay for offline PCAP"
-        )
+    require_live_platform()
 
     source = ConfigSource(
         args.config,

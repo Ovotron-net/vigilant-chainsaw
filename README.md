@@ -150,8 +150,10 @@ Modules under `src/ibn_monitor/` — no web framework, no ORM:
 |---|---|
 | `models.py` | Frozen domain types: `Observation`, `PolicyRule`, episodes, evidence envelopes |
 | `config.py` | V2 `validate_v2_config`/`load_v2_config` (one builder per section; defaults live on the dataclasses), `ConfigSource` (file + `--interface` override, same on reload), `runtime_identity_hash`, `is_loopback_host` |
-| `capture.py` | `ObservationSource` + `MemoryObservationSource` (no Scapy) |
-| `capture_afpacket.py` | Linux `AfPacketSource` (AF_PACKET / cBPF) |
+| `capture.py` | `ObservationSource` seam; `CaptureSource` shared live lifecycle (thread, reconnect/backoff, decode fallback, stats) around a `CaptureAdapter`; `MemoryObservationSource` |
+| `capture_live.py` | The one platform check + factory → Windows or Linux adapter |
+| `capture_windows.py` / `windows_packet.py` | Windows `WindowsRawAdapter` (SIO_RCVALL, DLT_RAW) |
+| `capture_afpacket.py` | Linux `AfPacketAdapter` (AF_PACKET, owned cBPF attached via `SO_ATTACH_FILTER`) |
 | `cbpf.py` / `linux_packet.py` / `staged_reader.py` | Owned BPF templates, socket helpers, MSG_PEEK reader |
 | `decode.py` / `pcap.py` / `policy.py` / `episodes.py` | Pure v2 decode, PCAP, match, episode tracking |
 | `processing.py` | `EpisodeProcessor`: Observation/tick/reload/shutdown → sequenced evidence envelopes (no I/O); owns the reload contract |
