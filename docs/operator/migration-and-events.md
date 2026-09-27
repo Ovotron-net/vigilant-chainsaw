@@ -40,9 +40,10 @@ Migration never overwrites the input file and refuses ambiguous selectors.
 
 ## Event schemas
 
-### Schema v1 (legacy; not emitted by v2 live/replay)
+### Schema v1 (legacy)
 
-Per-packet `network_policy_violation` with `rule` + `network` objects.
+Per-packet `network_policy_violation` events with `rule` + `network` objects.
+No current command produces them; listed only for consumers migrating off v1.
 
 ### Schema v2 evidence envelope
 
@@ -73,7 +74,7 @@ Every JSONL line / webhook body:
 | `payload.per_capture_point` | Per-point breakdown |
 | `payload.close_reason` | `idle`, `capacity_evicted`, `policy_reload`, `source_exhausted`, `shutdown` |
 
-Webhook eligibility: **start** and **close** only (plus severity gate). Progress is local/journal only.
+Webhook eligibility: episode **start** and **close** at or above `minimum_severity`, plus system events `source_failed`, `policy_reload_failed`, `coverage_gap` and `kernel_drops_observed`. Progress and other system events are journal-only.
 
 #### System events (selected)
 

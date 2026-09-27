@@ -10,8 +10,8 @@ Do not publish exploit details in a public issue. Use a private security advisor
 
 ## Operational recommendations
 
-- Bind health and metrics endpoints to localhost or a protected management network.
+- Bind the probe (`:9108`) and operations (`:9109`) listeners to loopback or a protected management network.
 - Keep webhook URLs in environment variables or a secrets manager.
-- Limit the service to `CAP_NET_RAW`; grant `CAP_NET_ADMIN` only where required.
+- Limit the Linux service to `CAP_NET_RAW` (Windows capture needs Administrator); grant `CAP_NET_ADMIN` only where firewall rules are applied.
 - Protect event logs because IP addresses and connection metadata can be sensitive.
 - Test firewall rules using `nft --check` and maintain out-of-band access.

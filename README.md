@@ -1,6 +1,6 @@
 # Intent-Based Continuous Traffic Monitor
 
-**Intent-Based Continuous Traffic Monitor** — a Linux network sensor that evaluates live or offline IP traffic against declarative JSON policies, logs violations as JSONL, optionally notifies via webhook, exposes health/metrics and a small dashboard, and can render `enforcement=nftables_drop_candidate` rules into a topology-aware `nftables` table.
+**Intent-Based Continuous Traffic Monitor** — a Windows and Linux network sensor that evaluates live or offline IP traffic against declarative JSON policies, logs violations as JSONL, optionally notifies via webhook, exposes health/metrics and a small dashboard, and can render `enforcement=nftables_drop_candidate` rules into a topology-aware `nftables` table.
 
 > Use this software only on networks and systems you own or are explicitly authorized to monitor.
 
@@ -43,8 +43,14 @@ pip install -e ".[dev]"
 New-Item -ItemType Directory -Force -Path data\logs | Out-Null
 # Elevated:
 ibn-monitor run
-# or: ibn-monitor run --config config/policy.v2.windows.json --interface 192.168.1.10
+# or: ibn-monitor run --config config/policy.v2.windows.json --interface "Wi-Fi"
 ```
+
+`interface: "auto"` binds the adapter that carries the default route (falling back to the
+first up adapter with a routable address; link-local `169.254.x.x` adapters such as an idle
+VPN are skipped). `--interface` accepts an adapter name, friendly name, or IPv4 address and is
+kept across SIGHUP reloads. Without Administrator the sensor stays `degraded`
+(`capture_point_unavailable`, WinError 10013).
 
 Probe/ops on loopback: `http://127.0.0.1:9108/healthz`, `http://127.0.0.1:9109/`.
 
@@ -91,8 +97,9 @@ flowchart TD
     end
 
     subgraph capture [Capture and decode]
-        AFP[AF_PACKET + cBPF<br/>capture_afpacket.py]
-        STG[Staged MSG_PEEK reader<br/>staged_reader.py]
+        WIN[Windows raw IP adapter<br/>capture_windows.py]
+        AFP[AF_PACKET + cBPF adapter<br/>capture_afpacket.py]
+        CS[CaptureSource lifecycle<br/>capture.py]
         DEC[Header-only decode<br/>decode.py]
         PCP[Streaming PCAP reader<br/>pcap.py]
     end
@@ -124,7 +131,9 @@ flowchart TD
         NFT[nftables table]
     end
 
-    NIC --> AFP --> STG --> DEC --> OQ
+    NIC --> WIN --> CS
+    NIC --> AFP --> CS
+    CS --> DEC --> OQ
     PCAP --> PCP --> RPL
     RPL --> PROC
     POLCFG --> MATCH
@@ -133,14 +142,14 @@ flowchart TD
     CTL --> WORK
     WORK --> PROC --> MATCH --> EP --> SEQ
     SEQ --> JRN
-    JRN --> WH
-    JRN --> RM
+    SEQ --> WH
+    SEQ --> RM
     RM --> PROBE
     RM --> OPS
     RNF --> NFT
 ```
 
-**Live data flow (v2):** AF_PACKET → decode → Observation queue → `PipelineWorker` → `EpisodeProcessor` (`evaluate_policy` → `EpisodeTracker` → `EvidenceSequencer`) → `JournalWriter` → webhook / ops snapshot / probe.
+**Live data flow (v2):** capture adapter (Windows raw IP / Linux AF_PACKET) → `CaptureSource` → decode → Observation queue → `PipelineWorker` → `EpisodeProcessor` (`evaluate_policy` → `EpisodeTracker` → `EvidenceSequencer`) → `JournalWriter` → webhook / ops snapshot / probe.
 
 **Offline:** `ibn-monitor replay` streams classic PCAP through the same policy and episode path (no root).
 
@@ -177,7 +186,7 @@ See [docs/operator/runbook.md](docs/operator/runbook.md) for operations. Domain 
 | **Dev / tests / PCAP** | Windows, macOS, or Linux |
 | **Runtime deps** | `jsonschema` |
 
-Capabilities: `CAP_NET_RAW` for capture; `CAP_NET_ADMIN` only when applying firewall rules.
+Privileges: Administrator (Windows) or `CAP_NET_RAW` (Linux) for capture; `CAP_NET_ADMIN` only when applying firewall rules.
 
 ## Policy model
 
@@ -227,7 +236,7 @@ The live sensor **never** drops packets. Enforcement is a separate `render-nftab
 - Rule IDs must be unique.
 - `destination_ports` only for `tcp` / `udp` (list or `"any"`).
 - `notifications.webhook_url_env` is an **environment variable name**, never the URL itself.
-- `SIGHUP` reloads **rules only**. Any other change (sensor, processing, episodes, journal, http, notifications) is reported as `restart_required`.
+- `SIGHUP` reloads **rules only**. Any other change (sensor, processing, episodes, journal, http, notifications) is reported as `restart_required`. Operator overrides (`--interface` / `IBN_CAPTURE_INTERFACE`) are re-applied on every reload.
 
 ## CLI
 
@@ -258,8 +267,9 @@ ibn-monitor migrate-policy --config config/policy.json --output build/policy.v2.
 | `make validate` | strict policy validate |
 | `make check` | sample flow check |
 | `make replay-v2` | generate + replay test PCAP |
-| `make docker` | `docker compose up --build -d` (see `docs/operator/docker.md`) |
 | `make nftables` | render nftables ruleset |
+| `make microbench` | cross-platform pipeline throughput bench |
+| `make test-linux-raw` | privileged Linux AF_PACKET / netns / nft tests |
 | `make release-check` | lint + tests + microbench + validate + replay + render + wheel |
 
 ## Webhook notifications
@@ -278,7 +288,7 @@ ibn-monitor run
 ```
 
 - The POST body is the same evidence envelope as the journal line.
-- Only episode `start` and `close` at or above `minimum_severity` are sent; every envelope is still journaled.
+- Sent: episode `start` / `close` at or above `minimum_severity`, and system events `source_failed`, `policy_reload_failed`, `coverage_gap`, `kernel_drops_observed`. Every envelope is still journaled.
 - Delivery is asynchronous with bounded retries (`max_attempts`, `max_elapsed_seconds`).
 - Never commit webhook URLs.
 
@@ -327,32 +337,6 @@ Day-2 operator flow: [`docs/operator/runbook.md`](docs/operator/runbook.md).
 Live and replay emit schema-v2 evidence envelopes, one JSON object per line.
 Field reference: [`docs/operator/migration-and-events.md`](docs/operator/migration-and-events.md).
 
-## Docker (Windows Docker Desktop only)
-
-Compose targets **Windows + Docker Desktop** (Linux containers, bridge network,
-published ports). Live AF_PACKET capture is **not** available here — use
-systemd on a real Linux host for production sensing. Operator guide:
-[`docs/operator/docker.md`](docs/operator/docker.md).
-
-```powershell
-Copy-Item .env.example .env -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path data\logs, data\lib | Out-Null
-docker compose up --build -d
-docker compose logs -f monitor
-
-curl.exe -sS http://127.0.0.1:9108/healthz
-curl.exe -sS http://127.0.0.1:9109/api/state
-```
-
-| Piece | Detail |
-|---|---|
-| Ports | `9108` probe, `9109` ops/dashboard (published to Windows host) |
-| Policy | `config/policy.v2.docker.json` binds `0.0.0.0` for Desktop port maps |
-| Journal | `.\data\logs` → `/var/log/ibn-monitor` |
-| Live capture | Degraded on Desktop (`/readyz` 503 expected) |
-| Offline | `docker compose --profile tools run --rm validate` |
-| Replay | `docker compose --profile replay run --rm replay` |
-
 ## systemd (Linux)
 
 ```bash
@@ -395,12 +379,13 @@ Rendering works on any OS; applying requires Linux and `nft`.
 ## Testing
 
 ```bash
-make test    # or: pytest
-make lint    # or: ruff check .
+make test          # or: pytest
+make lint          # or: ruff check .
+ruff format .      # formatter (CI-clean: ruff format --check .)
 ```
 
 - Shared fixtures: `tests/factories.py` (`policy_rule`, `observation`, `v2_config`).
-- `ObservationSource` is injectable — `LiveMonitor` tests use `MemoryObservationSource`.
+- `ObservationSource` is injectable — `LiveMonitor` tests use `MemoryObservationSource`; the capture lifecycle is tested through a scripted `CaptureAdapter` on any OS.
 - Privileged Linux tests: `make test-linux-raw`.
 
 ## Security
