@@ -80,7 +80,7 @@ class ControlLane:
         self._reload_pending: ControlMessage | None = None
         self._latest_timer: ControlMessage | None = None
         self._latest_stats: dict[str, ControlMessage] = {}
-        self._latest_lifecycle: dict[str, ControlMessage] = {}
+        self._lifecycle: deque[ControlMessage] = deque()
         self._dropped_sum: dict[str, ControlMessage] = {}
         self.drops_total = 0
 
@@ -108,7 +108,7 @@ class ControlLane:
                     drops=drops,
                 )
             elif message.capture_point and message.kind.startswith("source_"):
-                self._latest_lifecycle[message.capture_point] = message
+                self._lifecycle.append(message)
             else:
                 self._items.append(message)
             self._not_empty.notify()
@@ -120,9 +120,6 @@ class ControlLane:
                 messages.append(self._force)
                 self._force = None
                 self._shutdown = None
-            elif self._shutdown is not None:
-                messages.append(self._shutdown)
-                self._shutdown = None
             if self._reload_pending is not None:
                 messages.append(self._reload_pending)
                 self._reload_pending = None
@@ -133,10 +130,13 @@ class ControlLane:
             self._latest_stats.clear()
             messages.extend(self._dropped_sum.values())
             self._dropped_sum.clear()
-            messages.extend(self._latest_lifecycle.values())
-            self._latest_lifecycle.clear()
+            messages.extend(self._lifecycle)
+            self._lifecycle.clear()
             while self._items:
                 messages.append(self._items.popleft())
+            if self._shutdown is not None:
+                messages.append(self._shutdown)
+                self._shutdown = None
             return messages
 
     def wait(self, timeout: float) -> None:
@@ -245,6 +245,7 @@ class PipelineWorker:
         reloads, shutdown) so per-Observation publishing stays O(1) in episodes.
         """
         self._ops.set_queue_depth(self._observations.qsize())
+        self._ops.set_journal_healthy(self._evidence.healthy)
         self._read_model.publish(
             ops=self._ops.snapshot(),
             counts=self._processor.counts(),
@@ -261,7 +262,11 @@ class PipelineWorker:
     def _run(self) -> None:
         try:
             while True:
+                timers: list[ControlMessage] = []
                 for message in self._control.drain():
+                    if message.kind == "timer":
+                        timers.append(message)
+                        continue
                     self._handle_control(message)
                     if message.kind == "force_shutdown" or (
                         message.kind == "shutdown" and self._force
@@ -271,12 +276,19 @@ class PipelineWorker:
                     if message.kind == "shutdown":
                         self._shutdown(force=False)
                         return
-                for _ in range(OBSERVATION_BATCH):
+                # A timer must not advance episode time past observations that were
+                # already queued when the timer was drained.
+                observation_limit = self._observations.qsize() if timers else OBSERVATION_BATCH
+                processed = 0
+                for _ in range(observation_limit):
                     obs = self._observations.get(timeout=0.0)
                     if obs is None:
                         break
                     self._handle_observation(obs)
-                else:
+                    processed += 1
+                for timer in timers:
+                    self._handle_control(timer)
+                if not timers and processed == OBSERVATION_BATCH:
                     # Processed a full batch; immediately continue.
                     continue
                 if self._stop.is_set() and self._observations.qsize() == 0:
@@ -312,6 +324,7 @@ class PipelineWorker:
     def _handle_control(self, message: ControlMessage) -> None:
         if message.kind == "timer":
             now = message.monotonic_at
+            self._evidence.maintain()
             self._emit(self._processor.tick(lifecycle_time=now, emitted_at=datetime.now(UTC)))
             self._maybe_clear_drop_reasons(now)
             self._publish(episodes=True)
@@ -459,7 +472,7 @@ class PipelineWorker:
             )
         )
         self._publish(episodes=True)
-        self._evidence.flush()
+        self._evidence.flush(mark_clean=not force)
         self._notifier.stop(
             drain_seconds=self._processor.config.notifications.shutdown_drain_seconds
         )

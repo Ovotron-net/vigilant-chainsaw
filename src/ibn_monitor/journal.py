@@ -6,7 +6,9 @@ This module owns append durability, rotation, fsync cadence, and emergency buffe
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -35,6 +37,7 @@ class JournalWriter:
         self._emergency_bytes = 0
         self._emergency_dropped = 0
         self._unclean_boot = self._detect_unclean_boot()
+        self._clean_shutdown_allowed = True
 
     @property
     def healthy(self) -> bool:
@@ -80,34 +83,51 @@ class JournalWriter:
                 self._healthy = False
                 self._buffer(line)
 
-    def flush(self) -> None:
+    def maintain(self) -> None:
+        """Run periodic durability and recovery work from the pipeline timer."""
         with self._lock:
-            if self._healthy:
+            if not self._healthy:
+                self._try_recover_locked()
+                return
+            if (
+                self._bytes_since_fsync
+                and time.monotonic() - self._last_fsync >= self._config.fsync_interval_seconds
+            ):
                 try:
-                    self._handle.flush()
-                    self._handle.fileno()  # ensure open
-                    import os
-
-                    os.fsync(self._handle.fileno())
-                    self._last_fsync = time.monotonic()
-                    self._bytes_since_fsync = 0
+                    self._sync()
                 except OSError as exc:
                     logger.error("journal fsync failed: %s", exc)
                     self._healthy = False
-            self._mark_clean()
+
+    def flush(self, *, mark_clean: bool = True) -> None:
+        with self._lock:
+            self._clean_shutdown_allowed = self._clean_shutdown_allowed and mark_clean
+            if self._healthy:
+                try:
+                    self._drain_emergency()
+                    self._sync()
+                except OSError as exc:
+                    logger.error("journal fsync failed: %s", exc)
+                    self._healthy = False
+            if self._clean_shutdown_allowed and self._healthy and not self._emergency:
+                self._mark_clean()
+            else:
+                self._mark_running()
 
     def close(self) -> None:
         with self._lock:
             try:
                 if self._healthy:
-                    self._handle.flush()
-                    import os
-
-                    os.fsync(self._handle.fileno())
+                    self._drain_emergency()
+                    self._sync()
                 self._handle.close()
-            except OSError:
-                pass
-            self._mark_clean()
+            except OSError as exc:
+                logger.error("journal close failed: %s", exc)
+                self._healthy = False
+            if self._clean_shutdown_allowed and self._healthy and not self._emergency:
+                self._mark_clean()
+            else:
+                self._mark_running()
 
     def _write_line(self, line: str) -> None:
         encoded = line.encode("utf-8")
@@ -117,18 +137,21 @@ class JournalWriter:
     def _maybe_fsync(self) -> None:
         now = time.monotonic()
         if now - self._last_fsync >= self._config.fsync_interval_seconds:
-            self._handle.flush()
-            import os
+            self._sync(now=now)
 
-            os.fsync(self._handle.fileno())
-            self._last_fsync = now
-            self._bytes_since_fsync = 0
+    def _sync(self, *, now: float | None = None) -> None:
+        self._handle.flush()
+        os.fsync(self._handle.fileno())
+        self._last_fsync = time.monotonic() if now is None else now
+        self._bytes_since_fsync = 0
 
     def _maybe_rotate(self) -> None:
         self._handle.flush()
         size = self._path.stat().st_size
         if size < self._config.max_bytes:
             return
+        # A rotated segment will never be touched by a later cadence fsync.
+        self._sync()
         self._handle.close()
         # Rotate: file.(n-1) -> file.n, then file -> file.1
         for index in range(self._config.backup_count - 1, 0, -1):
@@ -165,14 +188,20 @@ class JournalWriter:
     def try_recover(self) -> bool:
         """Attempt to reopen the journal after a failure."""
         with self._lock:
-            if self._healthy:
-                return True
-            try:
-                self._handle = self._path.open("a", encoding="utf-8")
-                self._healthy = True
-                self._drain_emergency()
-                self._maybe_fsync()
-                return True
-            except OSError as exc:
-                logger.error("journal recovery failed: %s", exc)
-                return False
+            return self._try_recover_locked()
+
+    def _try_recover_locked(self) -> bool:
+        if self._healthy:
+            return True
+        try:
+            with contextlib.suppress(OSError):
+                self._handle.close()
+            self._handle = self._path.open("a", encoding="utf-8")
+            self._healthy = True
+            self._drain_emergency()
+            self._sync()
+            return True
+        except OSError as exc:
+            self._healthy = False
+            logger.error("journal recovery failed: %s", exc)
+            return False

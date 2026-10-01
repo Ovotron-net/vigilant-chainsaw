@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .models import (
     REASON_APP_QUEUE_DROPS,
     REASON_CAPTURE_POINT_UNAVAILABLE,
+    REASON_JOURNAL_UNAVAILABLE,
     REASON_KERNEL_DROPS,
     REASON_NO_POLICY,
     REASON_SHUTDOWN,
@@ -89,6 +90,16 @@ class OperationalStateMachine:
 
     def clear_kernel_drops(self) -> None:
         self._reasons.discard(REASON_KERNEL_DROPS)
+        self._recompute()
+
+    def set_journal_healthy(self, healthy: bool) -> None:
+        unavailable = REASON_JOURNAL_UNAVAILABLE in self._reasons
+        if healthy == (not unavailable):
+            return
+        if healthy:
+            self._reasons.discard(REASON_JOURNAL_UNAVAILABLE)
+        else:
+            self._reasons.add(REASON_JOURNAL_UNAVAILABLE)
         self._recompute()
 
     def set_source(

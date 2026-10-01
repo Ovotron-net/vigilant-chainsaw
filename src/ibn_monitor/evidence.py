@@ -127,7 +127,11 @@ class EvidenceWriter(Protocol):
         """Append an already-sequenced envelope in processing order."""
         ...
 
-    def flush(self) -> None: ...
+    def maintain(self) -> None:
+        """Perform periodic flush or recovery work."""
+        ...
+
+    def flush(self, *, mark_clean: bool = True) -> None: ...
 
     def close(self) -> None: ...
 
@@ -140,7 +144,10 @@ class MemoryEvidenceWriter:
     def commit(self, envelope: EvidenceEnvelope) -> None:
         self.events.append(envelope)
 
-    def flush(self) -> None:
+    def maintain(self) -> None:
+        return
+
+    def flush(self, *, mark_clean: bool = True) -> None:
         return
 
     def close(self) -> None:

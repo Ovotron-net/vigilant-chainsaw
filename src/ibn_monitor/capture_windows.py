@@ -7,6 +7,7 @@ Requires Administrator for SOCK_RAW + RCVALL.
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import socket
 
 from .capture import CapturedHeader, CaptureSource, CaptureSourceConfig
@@ -36,9 +37,9 @@ class BytesHeaderReader:
 
     __slots__ = ("_data", "wire_length")
 
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, *, wire_length: int | None = None) -> None:
         self._data = data
-        self.wire_length = len(data)
+        self.wire_length = len(data) if wire_length is None else wire_length
 
     def prefix(self, length: int) -> bytes:
         return self._data[:length]
@@ -59,16 +60,14 @@ class WindowsRawAdapter:
         self._point = capture_point
         self._header_budget = header_budget
         self._recv_timeout = recv_timeout_seconds
-        # Raw IP has no link-layer direction; honour a one-way capture point, else unknown.
-        self._direction: ObservedDirection = (
-            capture_point.direction if capture_point.direction != "both" else "unknown"
-        )
+        self._bind_ip: ipaddress.IPv4Address | None = None
         self._sock: socket.socket | None = None
         self._received = 0
 
     def open(self) -> str:
         require_windows()
         bind_ip = resolve_bind_ipv4(self._point.interface)
+        self._bind_ip = ipaddress.IPv4Address(bind_ip)
         sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_IP)
         self._sock = sock
         sock.bind((bind_ip, 0))
@@ -84,8 +83,26 @@ class WindowsRawAdapter:
             return None
         if not data:
             return None
+        direction = self._packet_direction(data)
+        if self._point.direction not in {"both", direction}:
+            return None
         self._received += 1
-        return CapturedHeader(reader=BytesHeaderReader(data), direction=self._direction)
+        wire_length = int.from_bytes(data[2:4], "big") if len(data) >= 4 else len(data)
+        return CapturedHeader(
+            reader=BytesHeaderReader(data, wire_length=max(len(data), wire_length)),
+            direction=direction,
+        )
+
+    def _packet_direction(self, data: bytes) -> ObservedDirection:
+        if self._bind_ip is None or len(data) < 20 or data[0] >> 4 != 4:
+            return "unknown"
+        source = ipaddress.IPv4Address(data[12:16])
+        destination = ipaddress.IPv4Address(data[16:20])
+        if source == self._bind_ip:
+            return "outbound"
+        if destination == self._bind_ip:
+            return "inbound"
+        return "unknown"
 
     def poll_kernel_stats(self) -> tuple[int, int]:
         # SIO_RCVALL exposes no drop counter; report datagrams received since last poll.

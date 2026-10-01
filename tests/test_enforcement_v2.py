@@ -13,6 +13,7 @@ def test_gateway_renders_forward_only():
     output = render_nftables_v2(config)
     assert "topology=gateway" in output
     assert f"policy_revision={config.policy_revision}" in output
+    assert "destroy table inet ibn_monitor" in output
     assert "add chain inet ibn_monitor forward" in output
     assert "add chain inet ibn_monitor input" not in output
     assert "ip saddr 10.20.0.0/16 ip daddr 10.50.10.8/32 tcp dport 5432" in output

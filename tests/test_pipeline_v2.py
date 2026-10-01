@@ -7,7 +7,8 @@ from ibn_monitor.capture import MemoryObservationSource
 from ibn_monitor.config import ConfigSource, runtime_identity_hash
 from ibn_monitor.evidence import MemoryEvidenceWriter
 from ibn_monitor.monitor import LiveMonitor
-from ibn_monitor.pipeline import ObservationQueue
+from ibn_monitor.models import ControlMessage
+from ibn_monitor.pipeline import ControlLane, ObservationQueue, PipelineConfig, PipelineWorker
 
 
 def test_observation_queue_drop_oldest():
@@ -18,6 +19,67 @@ def test_observation_queue_drop_oldest():
     first = queue.get(timeout=0.1)
     assert first is not None
     assert first.source_port == 2
+
+
+def test_control_lane_preserves_failure_before_retry():
+    lane = ControlLane()
+    lane.put(
+        ControlMessage(
+            kind="source_failed",
+            monotonic_at=1,
+            capture_point="wan",
+            detail="link down",
+        )
+    )
+    lane.put(
+        ControlMessage(
+            kind="source_retrying",
+            monotonic_at=2,
+            capture_point="wan",
+            detail="link down",
+        )
+    )
+
+    assert [message.kind for message in lane.drain()] == [
+        "source_failed",
+        "source_retrying",
+    ]
+
+
+def test_control_lane_orders_source_stop_before_graceful_shutdown():
+    lane = ControlLane()
+    lane.put(ControlMessage(kind="shutdown", monotonic_at=2))
+    lane.put(ControlMessage(kind="source_stopped", monotonic_at=1, capture_point="wan"))
+    assert [message.kind for message in lane.drain()] == [
+        "source_stopped",
+        "shutdown",
+    ]
+
+
+def test_timer_runs_after_observations_already_in_queue():
+    base = v2_config()
+    config = replace(base, episodes=replace(base.episodes, idle_seconds=10))
+    evidence = MemoryEvidenceWriter()
+    worker = PipelineWorker(
+        config,
+        pipeline_config=PipelineConfig(
+            observation_capacity=10,
+            queue_recovery_cooldown_seconds=30,
+            graceful_drain_seconds=0,
+        ),
+        evidence=evidence,
+        boot_id="timer-order",
+    )
+    worker.observation_sink(observation(monotonic_at=0))
+    worker.control_sink(ControlMessage(kind="timer", monotonic_at=20))
+    worker._control.wait = lambda _timeout: worker.control_sink(
+        ControlMessage(kind="force_shutdown", monotonic_at=21)
+    )
+
+    worker._run()
+
+    closes = [event.payload for event in evidence.events if event.event_type.endswith(".close")]
+    assert closes[0].close_reason == "idle"
 
 
 def test_live_monitor_with_memory_source():
