@@ -38,8 +38,10 @@ def render_nftables_v2(config: PolicyV2Config) -> str:
         f"# config_revision={config.config_revision}",
         f"# sensor_id={config.sensor.id}",
         "",
+        # ``destroy`` is idempotent when the table is absent, unlike ``delete``.
+        # Recreate the managed table so stale chains cannot make a reapply fail.
+        "destroy table inet ibn_monitor",
         "add table inet ibn_monitor",
-        "flush table inet ibn_monitor",
     ]
     for chain, hook in chains:
         lines.append(

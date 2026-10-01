@@ -86,3 +86,24 @@ def test_rejects_non_default_bpf_filter():
     result = migrate_v1_policy(raw, request())
     assert result.payload is None
     assert [item.code for item in result.diagnostics] == ["migration.unsupported_bpf_filter"]
+
+
+def test_rejects_unknown_v1_action_instead_of_disabling_enforcement():
+    raw = {
+        "version": 1,
+        "rules": [
+            {
+                "id": "R1",
+                "source_cidrs": ["10.0.0.0/8"],
+                "destination_cidrs": ["192.0.2.1/32"],
+                "protocol": "tcp",
+                "destination_ports": [443],
+                "action": "drpo",
+            }
+        ],
+    }
+
+    result = migrate_v1_policy(raw, request())
+
+    assert result.payload is None
+    assert [item.code for item in result.diagnostics] == ["migration.invalid_action"]

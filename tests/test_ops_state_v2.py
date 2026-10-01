@@ -81,6 +81,15 @@ def test_worker_dead_degrades():
     assert not machine.snapshot().ready
 
 
+def test_journal_failure_degrades_readiness_until_recovery():
+    machine = _ready("wan")
+    machine.set_journal_healthy(False)
+    assert machine.snapshot().reasons == frozenset({"journal_unavailable"})
+    assert not machine.snapshot().ready
+    machine.set_journal_healthy(True)
+    assert machine.snapshot().ready
+
+
 def test_shutdown_is_stopping_and_does_not_report_capture_unavailable():
     machine = _ready("wan")
     machine.mark_shutdown()

@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 SEVERITY_ORDER = {"low": 10, "medium": 20, "high": 30, "critical": 40}
 
 
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class NotifierStats:
     sent: int = 0
@@ -57,6 +70,7 @@ class WebhookV2Notifier:
     def __init__(self, config: NotificationV2Config) -> None:
         self._config = config
         self._url = self._resolve_url()
+        self._opener = urllib.request.build_opener(_RejectRedirects())
         self._queue: queue.Queue[EvidenceEnvelope | None] = queue.Queue(maxsize=1000)
         self._thread = threading.Thread(target=self._worker, name="ibn-webhook-v2", daemon=True)
         self._started = False
@@ -168,9 +182,7 @@ class WebhookV2Notifier:
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(
-                    request, timeout=self._config.timeout_seconds
-                ) as response:
+                with self._opener.open(request, timeout=self._config.timeout_seconds) as response:
                     if 200 <= response.status < 300:
                         self.sent += 1
                         return

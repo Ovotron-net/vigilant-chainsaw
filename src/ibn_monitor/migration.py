@@ -53,6 +53,16 @@ def _migrate_rule(
                 'v1 omitted/empty ports meant any; choose "any" or explicit ports',
             )
         )
+    action = str(rule.get("action", "alert")).lower()
+    if action not in {"alert", "drop"}:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "migration.invalid_action",
+                f"/rules/{index}/action",
+                'v1 action must be "alert" or "drop"',
+            )
+        )
     if diagnostics:
         return None, diagnostics
 
@@ -69,11 +79,7 @@ def _migrate_rule(
         "enabled": rule.get("enabled", True),
         "match": match,
         "severity": str(rule.get("severity", "high")).lower(),
-        "enforcement": (
-            "nftables_drop_candidate"
-            if str(rule.get("action", "alert")).lower() == "drop"
-            else "none"
-        ),
+        "enforcement": ("nftables_drop_candidate" if action == "drop" else "none"),
     }
     return migrated, diagnostics
 

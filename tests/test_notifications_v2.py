@@ -1,4 +1,6 @@
+import threading
 from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from factories import observation, policy_rule
 
@@ -52,3 +54,50 @@ def test_null_notifier_reports_zero_stats():
     from ibn_monitor.notifications_v2 import NotifierStats, NullV2Notifier
 
     assert NullV2Notifier().stats() == NotifierStats()
+
+
+def test_webhook_rejects_redirect_without_following(monkeypatch):
+    paths = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            paths.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", "/target")
+            self.end_headers()
+
+        def do_GET(self):  # noqa: N802
+            paths.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv("WH", f"http://127.0.0.1:{server.server_port}/hook")
+    notifier = WebhookV2Notifier(
+        NotificationV2Config(
+            webhook_url_env="WH",
+            insecure_allow_http_loopback=True,
+            max_attempts=1,
+        )
+    )
+    tracker = EpisodeTracker(EpisodeSettings(10, 30, 60), id_factory=lambda: "ep")
+    transition = tracker.observe(
+        policy_rule(), observation(), policy_revision="a" * 64, lifecycle_time=0
+    )[0]
+    envelope = EvidenceSequencer("s", "b").wrap_episode(
+        transition, emitted_at=datetime(2026, 7, 24, tzinfo=UTC)
+    )
+
+    try:
+        notifier._deliver(envelope)
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert paths == ["/hook"]
+    assert notifier.failed == 1

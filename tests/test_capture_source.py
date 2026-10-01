@@ -192,11 +192,11 @@ def test_windows_adapter_reads_raw_datagrams_and_reports_received_count(monkeypa
 
     fake = FakeSocket()
     monkeypatch.setattr("ibn_monitor.capture_windows.require_windows", lambda: None)
-    monkeypatch.setattr("ibn_monitor.capture_windows.resolve_bind_ipv4", lambda _i: "192.168.1.10")
+    monkeypatch.setattr("ibn_monitor.capture_windows.resolve_bind_ipv4", lambda _i: "10.50.10.8")
     monkeypatch.setattr("ibn_monitor.capture_windows.socket.socket", lambda *a: fake)
     adapter = WindowsRawAdapter(POINT)
 
-    assert "192.168.1.10" in adapter.open()
+    assert "10.50.10.8" in adapter.open()
     header = adapter.read()
     assert header is not None and header.direction == "inbound"
     assert header.reader.prefix(20) == PACKET[:20]
@@ -242,6 +242,11 @@ def test_afpacket_adapter_attaches_filter_and_peeks(monkeypatch):
             self.recv_calls.append((length, flags))
             return PACKET[:length]
 
+        def recvmsg_into(self, buffers, _ancillary, flags):
+            self.recv_calls.append((len(buffers[0]), flags))
+            buffers[0][: len(PACKET)] = PACKET
+            return 1500, [], 0, ("eth0", 0, lp.PACKET_OUTGOING, 1, b"")
+
         def close(self):
             return
 
@@ -249,13 +254,17 @@ def test_afpacket_adapter_attaches_filter_and_peeks(monkeypatch):
     monkeypatch.setattr(lp, "require_linux", lambda: None)
     monkeypatch.setattr("ibn_monitor.capture_afpacket.socket.if_nametoindex", lambda _i: 3)
     monkeypatch.setattr("ibn_monitor.capture_afpacket.socket.socket", lambda *a: fake)
-    adapter = AfPacketAdapter(POINT)
+    adapter = AfPacketAdapter(
+        CapturePointConfig(name="lan", interface="eth0", direction="both", promiscuous=False)
+    )
 
     assert "cbpf=on" in adapter.open()
-    expected = lp.sock_filter_program(build_filter(direction="inbound", snap_len=512))
+    expected = lp.sock_filter_program(build_filter(direction="both", snap_len=512))
     assert fake.options[(socket.SOL_SOCKET, 26)] == expected
     header = adapter.read()
     assert header is not None and header.release is not None
+    assert header.direction == "outbound"
+    assert header.reader.wire_length == 1500
     header.release()
-    assert fake.recv_calls[0][1] == 0x2  # MSG_PEEK
+    assert fake.recv_calls[0][1] == 0x22  # MSG_PEEK | MSG_TRUNC
     assert fake.recv_calls[-1][1] == 0  # consume
