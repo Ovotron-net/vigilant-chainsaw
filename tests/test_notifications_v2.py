@@ -1,6 +1,6 @@
+import threading
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
 
 from factories import observation, policy_rule
 

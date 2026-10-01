@@ -6,8 +6,8 @@ from factories import observation, policy_rule, v2_config
 from ibn_monitor.capture import MemoryObservationSource
 from ibn_monitor.config import ConfigSource, runtime_identity_hash
 from ibn_monitor.evidence import MemoryEvidenceWriter
-from ibn_monitor.monitor import LiveMonitor
 from ibn_monitor.models import ControlMessage
+from ibn_monitor.monitor import LiveMonitor
 from ibn_monitor.pipeline import ControlLane, ObservationQueue, PipelineConfig, PipelineWorker
 
 
@@ -78,7 +78,11 @@ def test_timer_runs_after_observations_already_in_queue():
 
     worker._run()
 
-    closes = [event.payload for event in evidence.events if event.event_type.endswith(".close")]
+    closes = [
+        event.payload
+        for event in evidence.events
+        if getattr(event.payload, "phase", None) == "close"
+    ]
     assert closes[0].close_reason == "idle"
 
 
